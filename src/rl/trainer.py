@@ -47,6 +47,10 @@ def build_grpo_trainer(*args: Any, **kwargs: Any):
     # If max length controls are passed as top-level kwargs but the TRL version
     # expects them inside args (GRPOConfig), inject them.
     if args_dict is not None:
+        # TRL may access `args.gradient_checkpointing` unconditionally.
+        # Ensure it always exists even if the YAML/config omitted it.
+        args_dict.setdefault("gradient_checkpointing", False)
+
         for src_name, dst_name in (
             ("max_prompt_length", "max_prompt_length"),
             ("max_prompt_len", "max_prompt_length"),

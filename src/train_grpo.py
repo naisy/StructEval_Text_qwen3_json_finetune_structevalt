@@ -196,6 +196,8 @@ def run_grpo(
             output_dir=str(out_dir),
             per_device_train_batch_size=int(cfg["training"]["per_device_train_batch_size"]),
             gradient_accumulation_steps=int(cfg["training"]["gradient_accumulation_steps"]),
+            # TRL expects this flag on args for some versions (even when False).
+            gradient_checkpointing=bool(cfg["training"].get("gradient_checkpointing", False)),
             learning_rate=float(cfg["training"]["learning_rate"]),
             warmup_ratio=float(cfg["training"].get("warmup_ratio", 0.0)),
             logging_steps=int(cfg["training"].get("logging_steps", 10)),

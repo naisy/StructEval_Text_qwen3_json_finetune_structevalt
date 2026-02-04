@@ -28,6 +28,7 @@ training:
   save_first_step: true
   save_total_limit: 3
   bf16: true
+  gradient_checkpointing: false
 
 grpo:
   merge_base_if_peft: true
