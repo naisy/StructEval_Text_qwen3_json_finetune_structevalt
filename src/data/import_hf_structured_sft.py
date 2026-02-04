@@ -43,32 +43,138 @@ def _normalize_output_type(x: Any) -> str:
 _OUTPUT_RE = re.compile(r"\bOutput\s*:\s*\n", re.IGNORECASE)
 
 
-def extract_final_output(text: str) -> str:
-    """Extract the final structured output from an assistant message.
 
-    Many datasets include CoT or explanations like:
-        Approach: ...
-        Output:
-        { ... }
+_FENCE_BLOCK_RE = re.compile(r"```(?:[a-zA-Z0-9_+-]+)?\n(.*?)\n```", re.DOTALL)
 
-    We take the substring after the last 'Output:' marker if present,
-    otherwise return the whole string.
+def _strip_markdown_fences_anywhere(text: str) -> str:
+    """
+    If the text contains a fenced code block, return the *last* fenced block content.
+    Otherwise return the original text.
+    This helps remove preambles like:
+        Sure! ... 
+        ```xml
+        <a/>
+        ```
     """
     if not isinstance(text, str):
         return ""
     t = text.strip()
     if not t:
         return ""
-    # Take content after the last Output: marker
-    matches = list(_OUTPUT_RE.finditer(t))
-    if matches:
-        t = t[matches[-1].end():].strip()
-    # Strip common code fences if any
-    if t.startswith("```") and t.endswith("```"):
-        t = t.strip("`\n").strip()
+    blocks = list(_FENCE_BLOCK_RE.finditer(t))
+    if blocks:
+        return blocks[-1].group(1).strip()
     return t
 
 
+def _extract_json_substring(t: str) -> str:
+    # Take the first JSON object/array by bracket matching.
+    starts = [(t.find("{"), "{"), (t.find("["), "[")]
+    starts = [(i, ch) for i, ch in starts if i != -1]
+    if not starts:
+        return ""
+    i0, ch0 = min(starts, key=lambda x: x[0])
+    end_ch = "}" if ch0 == "{" else "]"
+    stack = []
+    in_str = False
+    esc = False
+    for i in range(i0, len(t)):
+        ch = t[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":  # escape
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        else:
+            if ch == '"':
+                in_str = True
+                continue
+            if ch in "{[":
+                stack.append(ch)
+            elif ch in "}]":
+                if not stack:
+                    continue
+                open_ch = stack.pop()
+                if (open_ch == "{" and ch != "}") or (open_ch == "[" and ch != "]"):
+                    # mismatch; bail
+                    return ""
+                if not stack:
+                    return t[i0:i+1].strip()
+    return ""
+
+
+def _extract_xml_substring(t: str) -> str:
+    # Basic heuristic: from first "<" to last ">".
+    i0 = t.find("<")
+    i1 = t.rfind(">")
+    if i0 == -1 or i1 == -1 or i1 <= i0:
+        return ""
+    return t[i0:i1+1].strip()
+
+
+def _strip_leading_explanations_lines(t: str, *, kind: str) -> str:
+    lines = [ln.rstrip() for ln in t.splitlines()]
+    if not lines:
+        return ""
+    def is_yaml_like(ln: str) -> bool:
+        return (":" in ln and not ln.lstrip().startswith("#")) or ln.lstrip().startswith("- ")
+    def is_toml_like(ln: str) -> bool:
+        s = ln.lstrip()
+        return s.startswith("[") and s.endswith("]") or ("=" in s and not s.startswith("#"))
+    def is_csv_like(ln: str) -> bool:
+        return "," in ln or "\t" in ln
+    keep_from = 0
+    for idx, ln in enumerate(lines):
+        s = ln.strip()
+        if not s:
+            continue
+        if kind == "YAML" and is_yaml_like(s):
+            keep_from = idx
+            break
+        if kind == "TOML" and is_toml_like(s):
+            keep_from = idx
+            break
+        if kind == "CSV" and is_csv_like(s):
+            keep_from = idx
+            break
+    return "\n".join(lines[keep_from:]).strip()
+
+
+def extract_final_output(text: str, output_type: str | None = None) -> str:
+    """Extract the final *structured* output from a dataset assistant message.
+
+    HF datasets may include preambles / explanations / code fences. We try, in order:
+    1) Take substring after the last 'Output:' marker.
+    2) If code fences exist anywhere, take the last fenced block body.
+    3) If output_type is known, extract the first well-formed blob (JSON/XML) or
+       strip leading explanation lines (YAML/TOML/CSV).
+    4) Fallback: return stripped text.
+    """
+    if not isinstance(text, str):
+        return ""
+    t = text.strip()
+    if not t:
+        return ""
+    # 1) After Output:
+    matches = list(_OUTPUT_RE.finditer(t))
+    if matches:
+        t = t[matches[-1].end():].strip()
+    # 2) code fences anywhere
+    t = _strip_markdown_fences_anywhere(t)
+
+    ot = _normalize_output_type(output_type) if output_type else ""
+    if ot == "JSON":
+        j = _extract_json_substring(t)
+        return j if j else t.strip()
+    if ot == "XML":
+        x = _extract_xml_substring(t)
+        return x if x else t.strip()
+    if ot in {"YAML", "TOML", "CSV"}:
+        return _strip_leading_explanations_lines(t, kind=ot)
+    return t.strip()
 def _infer_output_type(ex: Dict[str, Any]) -> str:
     # u-10bei: metadata.format
     md = ex.get("metadata")
@@ -85,7 +191,7 @@ def _infer_output_type(ex: Dict[str, Any]) -> str:
     return ""
 
 
-def _extract_reference_output(ex: Dict[str, Any], asst_msg: str | None) -> str:
+def _extract_reference_output(ex: Dict[str, Any], asst_msg: str | None, output_type: str | None) -> str:
     """Get the final structured output (gold) from an HF example.
 
     Priority:
@@ -97,11 +203,11 @@ def _extract_reference_output(ex: Dict[str, Any], asst_msg: str | None) -> str:
         for k in ("output", "final_output", "answer", "gold", "target"):
             v = md.get(k)
             if isinstance(v, str) and v.strip():
-                return extract_final_output(v)
+                return extract_final_output(v, output_type)
     if isinstance(ex.get("output"), str) and str(ex.get("output") or "").strip():
-        return extract_final_output(str(ex.get("output")))
+        return extract_final_output(str(ex.get("output")), output_type)
     if asst_msg:
-        return extract_final_output(asst_msg)
+        return extract_final_output(asst_msg, output_type)
     return ""
 
 
@@ -221,7 +327,7 @@ def main() -> None:
                 continue
             out_type = _infer_output_type(ex)
 
-            out_text = _extract_reference_output(ex, asst_msg)
+            out_text = _extract_reference_output(ex, asst_msg, out_type)
             if not out_text:
                 continue
 
