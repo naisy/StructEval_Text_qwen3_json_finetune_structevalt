@@ -19,6 +19,10 @@ training:
   max_prompt_len: 1536
   max_completion_len: 512
 
+  # 0 = run to completion (default). Set to a positive integer to stop after that many
+  # optimizer steps. Useful for quick GRPO sanity checks.
+  max_steps: 0
+
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 8
   learning_rate: 1.0e-5

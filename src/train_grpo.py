@@ -199,28 +199,36 @@ def run_grpo(
     # NOTE: TRL GRPO API details vary by version.
     # This template keeps the call minimal; adjust kwargs to match your installed TRL.
     info("Starting GRPO training...")
+    # Some TRL/Transformers versions interpret max_steps<=0 as "stop immediately".
+    # To keep the default behavior (train to completion), we only pass max_steps
+    # when it is a positive integer.
+    grpo_args = dict(
+        output_dir=str(out_dir),
+        per_device_train_batch_size=int(cfg["training"]["per_device_train_batch_size"]),
+        gradient_accumulation_steps=int(cfg["training"]["gradient_accumulation_steps"]),
+        # TRL expects this flag on args for some versions (even when False).
+        gradient_checkpointing=bool(cfg["training"].get("gradient_checkpointing", False)),
+        learning_rate=float(cfg["training"]["learning_rate"]),
+        warmup_ratio=float(cfg["training"].get("warmup_ratio", 0.0)),
+        logging_steps=int(cfg["training"].get("logging_steps", 10)),
+        save_strategy="steps",
+        save_steps=int(cfg["training"].get("save_steps", 200)),
+        save_total_limit=int(cfg["training"].get("save_total_limit", 3)),
+        save_first_step=bool(cfg["training"].get("save_first_step", True)),
+        bf16=bool(cfg["training"].get("bf16", False)),
+        max_prompt_length=int(cfg["training"].get("max_prompt_len", 1536)),
+        max_completion_length=int(cfg["training"].get("max_completion_len", 512)),
+    )
+    max_steps = int(cfg["training"].get("max_steps", 0) or 0)
+    if max_steps > 0:
+        grpo_args["max_steps"] = max_steps
+
     trainer = build_grpo_trainer(
         model=model,
         tokenizer=tok,
         train_dataset=ds_train,
         reward_funcs=reward_fn,
-        args=dict(
-            output_dir=str(out_dir),
-            per_device_train_batch_size=int(cfg["training"]["per_device_train_batch_size"]),
-            gradient_accumulation_steps=int(cfg["training"]["gradient_accumulation_steps"]),
-            # TRL expects this flag on args for some versions (even when False).
-            gradient_checkpointing=bool(cfg["training"].get("gradient_checkpointing", False)),
-            learning_rate=float(cfg["training"]["learning_rate"]),
-            warmup_ratio=float(cfg["training"].get("warmup_ratio", 0.0)),
-            logging_steps=int(cfg["training"].get("logging_steps", 10)),
-            save_strategy="steps",
-            save_steps=int(cfg["training"].get("save_steps", 200)),
-            save_total_limit=int(cfg["training"].get("save_total_limit", 3)),
-            save_first_step=bool(cfg["training"].get("save_first_step", True)),
-            bf16=bool(cfg['training'].get('bf16', False)),
-            max_prompt_length=int(cfg['training'].get('max_prompt_len', 1536)),
-            max_completion_length=int(cfg['training'].get('max_completion_len', 512)),
-        ),
+        args=grpo_args,
         num_generations=int(cfg["grpo"].get("num_generations", 4)),
         temperature=float(cfg["grpo"].get("temperature", 0.9)),
         top_p=float(cfg["grpo"].get("top_p", 0.95)),
