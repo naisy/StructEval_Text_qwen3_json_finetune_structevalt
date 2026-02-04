@@ -70,6 +70,11 @@ reward:
   # Penalty when output is not format-only (e.g., extra text around the structure).
   p_only: -1.0
 
+  # Additional penalty when the model emits wrapper text outside the extracted
+  # structured payload (e.g., "Sure! ...", markdown fences, etc.).
+  # You can override per format with p_extraneous_json / _yaml / _toml / _xml / _csv.
+  p_extraneous: -0.5
+
   # Legacy keys (kept for backward compatibility with older logs/configs)
   w_json_only: 0.5
   p_json_only_fail: -1.0

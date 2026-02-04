@@ -28,6 +28,112 @@ def strip_code_fences(text: str) -> str:
     return re.sub(_CODE_FENCE_RE, "", text).strip()
 
 
+# ---------------------------------------------------------------------------
+# Structured payload extraction / extraneous-text detection
+# ---------------------------------------------------------------------------
+
+
+_YAML_START_RE = re.compile(
+    r"^\s*(---\s*$|\-|\?|\{|\[|[A-Za-z0-9_\-\.]+\s*:)"
+)
+_TOML_START_RE = re.compile(r"^\s*(\[.*\]|[A-Za-z0-9_\-\.]+\s*=)")
+
+
+def _first_matching_line_start(text: str, pattern: re.Pattern[str]) -> int | None:
+    """Return character index of the first line that matches pattern, else None."""
+    if not text:
+        return None
+    idx = 0
+    for line in text.splitlines(True):
+        if pattern.search(line):
+            return idx
+        idx += len(line)
+    return None
+
+
+def extract_payload_and_extraneous(text: str, output_type: str) -> tuple[str, bool]:
+    """Extract the most-likely structured payload and detect extraneous text.
+
+    This is used for GRPO reward shaping.
+
+    Returns
+    -------
+    payload: str
+        The extracted structured content (code fences removed when applicable).
+    has_extraneous: bool
+        True if non-whitespace text exists outside the extracted payload.
+
+    Notes
+    -----
+    - If a triple-backtick fenced block exists, we treat the first fenced block
+      as the payload and mark any outside text as extraneous.
+    - JSON: we also support best-effort extraction of the first object/array.
+    - YAML/CSV are permissive syntactically, so we use simple "start line"
+      heuristics to avoid treating a natural-language prefix as valid.
+    """
+    t = (output_type or "JSON").strip().upper()
+    raw = text or ""
+
+    inside, outside = extract_first_fenced_block(raw)
+    if inside is not None:
+        payload = strip_code_fences(inside).strip()
+        return payload, outside.strip() != ""
+
+    # No fenced block: apply type-specific heuristics.
+    s = strip_code_fences(raw)
+
+    if t == "JSON":
+        ok, _obj, _err, used = parse_json_best_effort(s)
+        if ok and used is not None:
+            has_extra = s.strip() != used.strip()
+            return used.strip(), has_extra
+        return s.strip(), False
+
+    if t == "XML":
+        st = s.lstrip()
+        first_lt = st.find("<")
+        if first_lt == -1:
+            return st, False
+        # Check if anything non-ws existed before the first '<'
+        prefix = st[:first_lt]
+        payload = st[first_lt:].strip()
+        return payload, prefix.strip() != ""
+
+    if t == "YAML":
+        start = _first_matching_line_start(s, _YAML_START_RE)
+        if start is None:
+            return s.strip(), False
+        prefix = s[:start]
+        payload = s[start:].strip()
+        return payload, prefix.strip() != ""
+
+    if t == "TOML":
+        start = _first_matching_line_start(s, _TOML_START_RE)
+        if start is None:
+            return s.strip(), False
+        prefix = s[:start]
+        payload = s[start:].strip()
+        return payload, prefix.strip() != ""
+
+    if t == "CSV":
+        # Heuristic: payload likely starts at first line containing a comma.
+        idx = 0
+        start = None
+        for line in s.splitlines(True):
+            if "," in line:
+                start = idx
+                break
+            idx += len(line)
+        if start is None:
+            # No obvious CSV structure found.
+            return s.strip(), False
+        prefix = s[:start]
+        payload = s[start:].strip()
+        return payload, prefix.strip() != ""
+
+    return s.strip(), False
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -156,14 +262,20 @@ def is_yaml_only(text: str) -> bool:
     outputs a fenced block, we require that *nothing else* is present outside it.
     Otherwise we fall back to parsing the full (stripped) output.
     """
+    def _is_structured_yaml(t: str) -> bool:
+        ok, obj, _ = parse_yaml(t)
+        if not ok:
+            return False
+        # YAML is very permissive (any prose is a valid scalar). For our tasks,
+        # we expect a mapping or sequence.
+        return isinstance(obj, (dict, list))
+
     inside, outside = extract_first_fenced_block(text)
     if inside is not None:
         if outside.strip() != "":
             return False
-        ok, _, _ = parse_yaml(inside)
-        return ok
-    ok, _, _ = parse_yaml(text)
-    return ok
+        return _is_structured_yaml(inside)
+    return _is_structured_yaml(text)
 
 
 def parse_toml(text: str) -> Tuple[bool, Any | None, str | None]:
@@ -250,14 +362,20 @@ def is_csv_only(text: str) -> bool:
     outputs a fenced block, we require that *nothing else* is present outside it.
     Otherwise we fall back to parsing the full (stripped) output.
     """
+    def _is_structured_csv(t: str) -> bool:
+        ok, rows, _ = parse_csv(t)
+        if not ok or rows is None:
+            return False
+        # CSV is also permissive; require at least 2 columns somewhere.
+        max_cols = max((len(r) for r in rows), default=0)
+        return max_cols >= 2
+
     inside, outside = extract_first_fenced_block(text)
     if inside is not None:
         if outside.strip() != "":
             return False
-        ok, _, _ = parse_csv(inside)
-        return ok
-    ok, _, _ = parse_csv(text)
-    return ok
+        return _is_structured_csv(inside)
+    return _is_structured_csv(text)
 
 
 def build_schema_validator(schema: dict | str | Path) -> Draft202012Validator:

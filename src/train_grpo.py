@@ -17,6 +17,7 @@ from src.data.validators import build_schema_validator
 from src.models.load import load_model, load_tokenizer
 from src.models.lora import build_lora_config, apply_lora
 from src.rl.rewards import compute_reward_components, combine_reward
+from src.data import validators as V
 from src.structeval_t.scorer import eval_structeval_t
 from src.rl.trainer import build_grpo_trainer
 from src.utils.io import load_yaml, ensure_dir
@@ -150,6 +151,10 @@ def run_grpo(
                     otype = ots
             otype = str(otype or "JSON").strip().upper()
 
+            # Extract payload and flag extraneous wrapper text. We always score the payload,
+            # but can optionally penalize wrapper text.
+            payload, has_extraneous = V.extract_payload_and_extraneous(c, otype)
+
             # Prefer StructEval-T reward ONLY when we have a non-empty raw_output_metric.
             # (Many HF datasets don't include ATTRIBUTES blocks, so raw_output_metric becomes empty.)
             if raw_metrics is not None:
@@ -160,8 +165,15 @@ def run_grpo(
                     m = raw_metrics
                 metric_list = [str(x) for x in (m or [])] if isinstance(m, (list, tuple)) else []
                 if metric_list:
-                    res = eval_structeval_t(c, metric_list, output_type=otype)
-                    rewards.append(float(res.final_eval_score))
+                    res = eval_structeval_t(payload, metric_list, output_type=otype)
+                    r = float(res.final_eval_score)
+                    if has_extraneous:
+                        # format-specific override supported: p_extraneous_xml, etc.
+                        pen = cfg.get("reward", {}).get(f"p_extraneous_{otype.lower()}")
+                        if pen is None:
+                            pen = cfg.get("reward", {}).get("p_extraneous", 0.0)
+                        r += float(pen)
+                    rewards.append(r)
                     continue
 
             # Otherwise use component-based deterministic reward shaping (+ optional gold matching).

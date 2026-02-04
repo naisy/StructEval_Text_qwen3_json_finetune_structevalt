@@ -58,12 +58,17 @@ def compute_reward_components(
     t = _norm_output_type(output_type)
     strict_parse, best_effort_parse, is_only = _get_parsers(t)
 
-    ok, obj, _ = strict_parse(completion)
+    # Extract the structured payload for scoring, but keep a signal about
+    # whether the model emitted any extraneous wrapper text ("Sure!", markdown,
+    # code fences, etc.).
+    payload, has_extraneous = V.extract_payload_and_extraneous(completion, t)
+
+    ok, obj, _ = strict_parse(payload)
 
     # Best-effort parsing is currently implemented only for JSON.
     ok_be, obj_be = False, None
     if best_effort_parse is not None:
-        ok_be, obj_be, _err_be, _used = best_effort_parse(completion)
+        ok_be, obj_be, _err_be, _used = best_effort_parse(payload)
     else:
         ok_be, obj_be = ok, obj
 
@@ -72,6 +77,7 @@ def compute_reward_components(
     out["parse"] = 1.0 if ok else 0.0
     out["parse_best_effort"] = 1.0 if ok_be else 0.0
     out["only"] = 1.0 if is_only(completion) else 0.0
+    out["extraneous"] = 1.0 if has_extraneous else 0.0
 
     # legacy/type-specific mirrors (useful for logging/config back-compat)
     tl = t.lower()
@@ -119,7 +125,8 @@ def compute_reward_components(
     # Optional gold matching (format-aware). This is especially useful for HF datasets
     # that don't include StructEval-T ATTRIBUTES blocks (raw_output_metric=[]).
     if reference_output is not None and str(reference_output).strip():
-        ok_ref, obj_ref, _ = strict_parse(str(reference_output))
+        ref_payload, _ = V.extract_payload_and_extraneous(str(reference_output), t)
+        ok_ref, obj_ref, _ = strict_parse(ref_payload)
         if ok and ok_ref and obj is not None and obj_ref is not None:
             out["match"] = 1.0 if obj == obj_ref else 0.0
         else:
@@ -189,5 +196,11 @@ def combine_reward(components: dict[str, float], cfg: dict[str, Any], output_typ
     # If format-only failed, apply penalty (format-specific override supported)
     if components.get("only", 0.0) < 1.0:
         r += _cfg_get_typed_penalty(w, t, "p_only", -1.0)
+
+    # Penalize any wrapper text outside the structured payload (format-specific override supported).
+    # This targets outputs like "Sure! ... ```xml" ... and pushes the model toward emitting
+    # structure-only text.
+    if components.get("extraneous", 0.0) >= 1.0:
+        r += _cfg_get_typed_penalty(w, t, "p_extraneous", 0.0)
 
     return float(r)
