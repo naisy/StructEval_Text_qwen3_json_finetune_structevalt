@@ -6,14 +6,14 @@ set -euo pipefail
 DATASETS="${HF_GRPO_DATASETS:-daichira/structured-3k-mix-sft daichira/structured-5k-mix-sft daichira/structured-hard-sft-4k}"
 SPLIT="${HF_GRPO_SPLIT:-train}"
 
-python -m src.data.import_hf_structured_sft \
+PYTHONPATH="$(pwd)" python -m src.data.import_hf_structured_sft \
   --datasets ${DATASETS} \
   --split "${SPLIT}" \
   --out-grpo-tasks data/hf_grpo_tasks.json \
   --write-grpo-tasks \
   --shuffle-seed 42
 
-python -m src.data.prepare_structeval_split \
+PYTHONPATH="$(pwd)" python -m src.data.prepare_structeval_split \
   --in-json data/hf_grpo_tasks.json \
   --out-train data/train_hf_grpo_tasks.json \
   --out-valid data/valid_hf_grpo_tasks.json \
@@ -26,4 +26,4 @@ if [ ! -f data/structeval_text_all.json ]; then
   bash scripts/download_structeval_text_all.sh test data/structeval_text_all.json "JSON,YAML,TOML,XML,CSV"
 fi
 
-python train.py grpo --config configs/grpo_hf.yaml
+PYTHONPATH="$(pwd)" python train.py grpo --config configs/grpo_hf.yaml

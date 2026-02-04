@@ -6,13 +6,13 @@ set -euo pipefail
 DATASETS="${HF_SFT_DATASETS:-u-10bei/structured_data_with_cot_dataset_512_v5 daichira/structured-3k-mix-sft daichira/structured-5k-mix-sft daichira/structured-hard-sft-4k}"
 SPLIT="${HF_SFT_SPLIT:-train}"
 
-python -m src.data.import_hf_structured_sft \
+PYTHONPATH="$(pwd)" python -m src.data.import_hf_structured_sft \
   --datasets ${DATASETS} \
   --split "${SPLIT}" \
   --out-sft-jsonl data/hf_sft.jsonl \
   --shuffle-seed 42
 
-python -m src.data.prepare_sft_split \
+PYTHONPATH="$(pwd)" python -m src.data.prepare_sft_split \
   --input data/hf_sft.jsonl \
   --train-out data/train_hf_sft.jsonl \
   --valid-out data/valid_hf_sft.jsonl \
@@ -26,4 +26,4 @@ if [ ! -f data/structeval_text_all.json ]; then
   bash scripts/download_structeval_text_all.sh test data/structeval_text_all.json "JSON,YAML,TOML,XML,CSV"
 fi
 
-python train.py sft --config configs/sft_hf.yaml
+PYTHONPATH="$(pwd)" python train.py sft --config configs/sft_hf.yaml
