@@ -1,0 +1,56 @@
+# SFT configuration (Stage A)
+model:
+  base_model: Qwen/Qwen3-4B-Instruct-2507
+  # If you are using Unsloth or a local path, set base_model to that path.
+  trust_remote_code: true
+  use_flash_attention_2: false
+
+lora:
+  enabled: true
+  r: 32
+  alpha: 64
+  dropout: 0.05
+  target_modules: auto  # "auto" uses a heuristic list in src/models/lora.py
+
+training:
+  merge_lora_before_save: true
+  output_dir: outputs/sft
+  seed: 42
+  max_seq_len: 1024
+  # Memory stabilization: pad all sequences to max_seq_len to avoid gradual CUDA cache growth
+  pad_to_max_length: true
+  # Disable kv-cache during training (saves memory; no effect on eval/generation)
+  disable_cache: true
+  # Optionally reduce activation memory at the cost of speed
+  gradient_checkpointing: false
+  # If VRAM still creeps up, set >0 to call torch.cuda.empty_cache() every N steps
+  torch_empty_cache_steps: 0
+  # If you want to reduce padding (can increase peak VRAM), set true
+  group_by_length: false
+  dataloader_num_workers: 0
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 8
+  num_train_epochs: 2
+  learning_rate: 2.0e-4
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  logging_steps: 10
+  eval_steps: 200
+  save_steps: 50
+  save_first_step: true
+  save_total_limit: 3
+  bf16: true
+  fp16: false
+  # Logging integration for Hugging Face Trainer.
+  # Set to "wandb" to enable Weights & Biases logging.
+  report_to: none
+
+data:
+  dataset_config: configs/dataset_hf_sft.yaml
+
+eval:
+  # quick validation after SFT
+  run_eval_after_train: true
+  eval_config: configs/eval.yaml
+  post_train_eval_mode: exec

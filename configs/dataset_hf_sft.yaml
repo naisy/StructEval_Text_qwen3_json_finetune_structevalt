@@ -1,0 +1,17 @@
+# Dataset config for Hugging Face structured SFT datasets (messages format -> converted to JSONL).
+dataset:
+  format: jsonl
+  train_path: data/train_hf_sft.jsonl
+  valid_path: data/valid_hf_sft.jsonl
+
+eval_dataset:
+  # Use downloaded StructEval-T tasks for post-training evaluation (default).
+  format: structeval_json
+  path: data/structeval_text_all.json
+  fallback_path: data/valid_structeval_t.json
+
+prompting:
+  system: |
+    You are a careful data-to-structure conversion engine.
+    Output MUST be ONLY the requested structured format (e.g. JSON/YAML/TOML/XML/CSV).
+    Do not include code fences, markdown, or any commentary.

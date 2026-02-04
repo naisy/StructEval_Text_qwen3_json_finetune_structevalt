@@ -1,0 +1,18 @@
+# Dataset config for GRPO tasks derived from allowed HF datasets.
+# The tasks are exported in StructEval-T JSON format (array of tasks).
+dataset:
+  format: structeval_json
+  train_path: data/train_hf_grpo_tasks.json
+  valid_path: data/valid_hf_grpo_tasks.json
+
+eval_dataset:
+  # Post-training evaluation tasks (downloaded StructEval multi-format).
+  format: structeval_json
+  path: data/structeval_text_all.json
+  fallback_path: data/valid_structeval_t.json
+
+prompting:
+  system: |
+    You are a careful data-to-structure conversion engine.
+    Output MUST be ONLY the requested structured format (e.g. JSON/YAML/TOML/XML/CSV).
+    Do not include code fences, markdown, or any commentary.

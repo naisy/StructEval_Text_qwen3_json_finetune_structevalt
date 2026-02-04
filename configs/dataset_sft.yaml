@@ -1,0 +1,55 @@
+## Synthetic SFT dataset settings.
+##
+## Notes
+## - This config is consumed by SFT training (paths, prompting), and also by
+##   `src/data/build_pseudo_sft_from_structeval.py` when you pass
+##   `--dataset-sft-config configs/dataset_sft.yaml`.
+##
+## Pipeline (recommended)
+## 1) Generate pseudo-SFT JSONL (task x variant): data/structeval_pseudo_sft.jsonl
+## 2) Split into train/valid (scripts/run_sft.sh does this automatically):
+##      - data/train_sft.jsonl
+##      - data/valid_sft.jsonl
+## 3) Train SFT with configs/sft.yaml
+
+dataset:
+  format: jsonl
+  train_path: data/train_sft.jsonl
+  valid_path: data/valid_sft.jsonl
+
+eval_dataset:
+  # StructEval tasks to use for post-training evaluation.
+  # Downloaded by: scripts/download_structeval_text_all.sh
+  format: structeval_json
+  path: data/structeval_text_all.json
+  # Fallback to local mock tasks if the downloaded data is not present.
+  fallback_path: data/valid_structeval_t.json
+
+prompting:
+  system: |
+    You are a careful data-to-structure conversion engine.
+    Output MUST be ONLY the requested structured format (e.g. JSON/YAML/TOML/XML/CSV).
+    Do not include code fences, markdown, or any commentary.
+
+# Pseudo-SFT generation parameters (used by build_pseudo_sft_from_structeval.py).
+pseudo_sft:
+  # Number of teacher generations per base task.
+  variants_per_task: 4
+
+  # If the input StructEval file contains multiple output types, you can filter
+  # or split them. Default is to keep everything.
+  output_types: [json, yaml, toml, xml, csv]
+
+  # If true, write one JSONL per output_type into the output directory.
+  # (e.g. structeval_pseudo_sft_json.jsonl, structeval_pseudo_sft_yaml.jsonl, ...)
+  split_by_output_type: true
+
+# JSON schema & constraints are JSON-only features.
+# If you are training multi-format (JSON/YAML/TOML/XML/CSV), keep these disabled.
+schema:
+  enabled: false
+  schema_path: configs/json_schema/article_meta.schema.json
+
+constraints:
+  article_meta:
+    enabled: false

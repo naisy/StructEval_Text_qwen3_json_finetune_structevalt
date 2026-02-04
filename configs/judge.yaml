@@ -1,0 +1,53 @@
+judge:
+  enabled: true
+
+  # Apply the LLM-judge only to these output types.
+  # Default is JSON-only because the current judge prompt/template is
+  # focused on JSON structure + key-path coverage.
+  output_types: [JSON]
+
+  # Judge providers in priority order.
+  # The first available provider will be used; if it fails (e.g., missing API key),
+  # the next provider is tried automatically.
+  #
+  # Supported providers: openai | gemini | ollama
+  providers:
+    # 1) OpenAI (requires env OPENAI_API_KEY)
+    - provider: openai
+      model: gpt-5.2
+      # NOTE:
+      # - Some OpenAI models (including gpt-5.2) reject `temperature`. Keep it null to omit the parameter.
+      temperature: null
+      max_output_tokens: 512
+      timeout_s: 60
+      openai:
+        api_key_env: OPENAI_API_KEY
+        base_url: null
+        reasoning_effort: high
+
+    # 2) Gemini (optional; requires env GOOGLE_API_KEY or Vertex AI ADC)
+    - provider: gemini
+      # Example model string; adjust to the one you use.
+      model: gemini-3.0
+      temperature: null
+      max_output_tokens: 512
+      timeout_s: 60
+      gemini:
+        api_key_env: GOOGLE_API_KEY
+        use_vertexai_env: GOOGLE_GENAI_USE_VERTEXAI
+
+    # 3) Local Ollama fallback (no API key required)
+    - provider: ollama
+      model: gpt-oss:20b
+      temperature: null
+      max_output_tokens: 512
+      timeout_s: 60
+      ollama:
+        host: http://127.0.0.1:11434
+        use_chat: true
+        num_ctx: 16384
+
+  # Shared cache settings (used unless overridden per provider)
+  cache:
+    enabled: true
+    dir: outputs/cache/judge

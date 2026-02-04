@@ -1,0 +1,23 @@
+# Evaluation dataset (StructEval-T style tasks).
+#
+# Default path is the downloaded public StructEval tasks (JSON/YAML/TOML/XML/CSV).
+# If the file is missing, `train.py eval` automatically falls back to mock
+# tasks under data/valid_structeval_t.json.
+
+dataset:
+  format: structeval_json
+  # Downloaded by: scripts/download_structeval_text_all.sh
+  train_path: data/structeval_text_all.json
+  valid_path: data/structeval_text_all.json
+
+prompting:
+  # The StructEval tasks already contain the full prompt in `query`.
+  # This system message just enforces output-only behavior.
+  system: |
+    You are a careful assistant.
+    Output ONLY the requested format (JSON, YAML, TOML, XML, or CSV).
+    Do NOT include Markdown fences, explanations, or extra commentary.
+  user_prefix: ""
+  schema_prefix: ""
+  output_prefix: ""
+  include_requirements_in_prompt: false

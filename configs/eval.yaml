@@ -1,0 +1,42 @@
+# Evaluation config (StructEval-T style)
+model:
+  base_model: Qwen/Qwen3-4B-Instruct-2507
+  trust_remote_code: true
+
+data:
+  dataset_config: configs/dataset_eval.yaml
+
+generation:
+  temperature: 0.0
+  # 512 sometimes truncates deeply-nested JSON outputs in StructEval-T.
+  # Keeping this >= 1024 significantly reduces "json parse failed" due to
+  # output truncation.
+  max_new_tokens: 1024
+
+metrics:
+  # StructEval-T text-only scoring:
+  # final_eval_score = 0.2 * syntax_score + 0.8 * key_validation_score
+  use_structeval_t: true
+
+  # Extra debug metrics (not part of StructEval-T score)
+  # NOTE: these debug checks were useful for early JSON-only templates.
+  # For multi-format evaluation (JSON/YAML/TOML/XML/CSV) they are misleading,
+  # so we disable them by default.
+  check_json_only: false
+  check_schema: false
+  check_task_constraints: false
+
+# Optional: LLM-as-a-judge config (OpenAI/Gemini)
+judge_config: configs/judge.yaml
+
+# Evaluation sampling
+# - limit: default number of items to evaluate (0 = all)
+# - seed: if set, shuffle deterministically before taking limit
+
+eval:
+  # Default: evaluate 10 items per format.
+  # (JSON 10 + YAML 10 + TOML 10 + XML 10 + CSV 10 = 50 items)
+  limit_per_output_type: 10
+  output_types: [JSON, YAML, TOML, XML, CSV]
+  # If set, shuffles deterministically *within each format* bucket.
+  seed: null

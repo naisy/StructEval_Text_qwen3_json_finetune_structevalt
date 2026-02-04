@@ -1,0 +1,26 @@
+# Core
+torch>=2.2.0
+transformers>=4.46.0
+datasets>=2.20.0
+accelerate>=0.34.0
+
+# PEFT / LoRA
+peft>=0.12.0
+bitsandbytes>=0.43.0
+
+# RL trainers
+trl>=0.12.0
+
+# Utils
+pyyaml>=6.0.1
+jsonschema>=4.22.0
+tqdm>=4.66.0
+rich>=13.7.0
+
+# Logging (choose one; wandb optional)
+wandb>=0.17.0
+
+# Experiment tracking & plots
+matplotlib>=3.8.0
+pandas>=2.2.0
+requests>=2.31.0

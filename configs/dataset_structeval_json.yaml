@@ -1,0 +1,36 @@
+# Dataset config for StructEval JSON-output tasks (TIGER-Lab/StructEval)
+#
+# This dataset does NOT have a single global JSON schema.
+# Each task provides its own `raw_output_metric`...
+
+dataset:
+  format: structeval_json
+  train_path: data/structeval_json_eval.json
+  valid_path: data/structeval_json_eval.json
+
+eval_dataset:
+  # StructEval tasks to use for post-training evaluation.
+  # Downloaded by: scripts/download_structeval_text_all.sh
+  format: structeval_json
+  path: data/structeval_text_all.json
+  # Fallback to local mock tasks if the downloaded data is not present.
+  fallback_path: data/valid_structeval_t.json
+
+prompting:
+  system: |
+    You are a careful assistant.
+    Output MUST be a single JSON object, and nothing else.
+    Do NOT wrap in Markdown fences. Do NOT add commentary.
+  user_prefix: ""
+  schema_prefix: ""
+  output_prefix: ""
+  include_requirements_in_prompt: true
+
+schema:
+  enabled: false
+  schema_path: ""
+
+constraints:
+  article_meta:
+    enabled: false
+    authors_exactly: 0

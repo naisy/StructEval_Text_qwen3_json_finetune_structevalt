@@ -1,0 +1,77 @@
+# GRPO configuration (Stage B RL)
+model:
+  # If you ran SFT before GRPO, set this to "AUTO_SFT" so GRPO starts
+  # from the latest SFT checkpoint automatically.
+  base_model: AUTO_SFT
+  trust_remote_code: true
+  use_flash_attention_2: false
+
+lora:
+  enabled: true
+  r: 32
+  alpha: 64
+  dropout: 0.05
+  target_modules: auto
+
+training:
+  output_dir: outputs/grpo
+  seed: 42
+  max_prompt_len: 1536
+  max_completion_len: 512
+
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 1.0e-5
+  warmup_ratio: 0.03
+  logging_steps: 10
+  save_steps: 200
+  save_total_limit: 3
+  bf16: true
+
+grpo:
+  merge_base_if_peft: true
+  # number of generations per prompt (exploration)
+  num_generations: 6
+  temperature: 0.9
+  top_p: 0.95
+  # KL / regularization strength; exact name depends on TRL version.
+  beta: 0.05
+
+reward:
+  # weights for reward components (format-specific)
+  # Reward uses deterministic parsers per output_type: JSON/YAML/TOML/XML/CSV.
+  w_parse_json: 1.0
+  w_only_json: 0.5
+  w_parse_yaml: 1.0
+  w_only_yaml: 0.5
+  w_parse_toml: 1.0
+  w_only_toml: 0.5
+  w_parse_xml: 1.0
+  w_only_xml: 0.5
+  w_parse_csv: 1.0
+  w_only_csv: 0.5
+
+  # StructEval JSON tasks do not share a global schema, so we keep schema-based
+  # components disabled by default.
+  w_schema_valid: 0.0
+  w_no_extra_keys: 0.0
+  w_exact_authors_len_2: 0.0
+
+  # penalties
+  p_parse_fail: -3.0
+  # Mild penalty when only best-effort parsing succeeds (mainly JSON).
+  p_parse_best_effort: -1.5
+  # Penalty when output is not format-only (e.g., extra text around the structure).
+  p_only: -1.0
+
+  # Legacy keys (kept for backward compatibility with older logs/configs)
+  w_json_only: 0.5
+  p_json_only_fail: -1.0
+
+data:
+  dataset_config: configs/dataset_structeval_json.yaml
+
+eval:
+  run_eval_after_train: true
+  eval_config: configs/eval.yaml
+  post_train_eval_mode: exec

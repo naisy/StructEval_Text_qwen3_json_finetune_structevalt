@@ -1,0 +1,36 @@
+# Dataset config
+dataset:
+  # StructEval-T style JSON: a JSON array of task objects
+  train_path: data/train_structeval_t.json
+  valid_path: data/valid_structeval_t.json
+
+  # Supported formats:
+  # - jsonl: each line is an object like {instruction, output, requirements}
+  # - structeval_json: a JSON array with StructEval keys (task_id, query, raw_output_metric, ...)
+  format: structeval_json
+
+prompting:
+  # Force JSON-only output. Even if the dataset says "output JSON code",
+  # we strongly discourage code fences for production JSON parsing.
+  system: |
+    You are a careful assistant.
+    Output MUST be a single JSON object, and nothing else.
+    Do NOT wrap in Markdown fences. Do NOT add commentary.
+  user_prefix: ""
+  schema_prefix: ""
+  output_prefix: ""
+
+  # If your input data is StructEval-style, `query` is already composed and this flag is ignored.
+  include_requirements_in_prompt: true
+
+schema:
+  # Disabled by default because the schema check is not task-specific
+  # (it was designed for an early JSON-only template).
+  enabled: false
+  schema_path: data/article_meta_schema.json
+
+constraints:
+  # Optional task-specific constraints (used by component-based rewards / debug metrics)
+  article_meta:
+    enabled: true
+    authors_exactly: 2
