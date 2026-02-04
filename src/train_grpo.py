@@ -150,7 +150,8 @@ def run_grpo(
                     otype = ots
             otype = str(otype or "JSON").strip().upper()
 
-            # Prefer StructEval-T reward if we have raw_output_metric.
+            # Prefer StructEval-T reward ONLY when we have a non-empty raw_output_metric.
+            # (Many HF datasets don't include ATTRIBUTES blocks, so raw_output_metric becomes empty.)
             if raw_metrics is not None:
                 m = None
                 if isinstance(raw_metrics, list) and i < len(raw_metrics):
@@ -158,16 +159,26 @@ def run_grpo(
                 else:
                     m = raw_metrics
                 metric_list = [str(x) for x in (m or [])] if isinstance(m, (list, tuple)) else []
-                res = eval_structeval_t(c, metric_list, output_type=otype)
-                rewards.append(float(res.final_eval_score))
-                continue
+                if metric_list:
+                    res = eval_structeval_t(c, metric_list, output_type=otype)
+                    rewards.append(float(res.final_eval_score))
+                    continue
 
-            # Otherwise use component-based deterministic reward shaping.
+            # Otherwise use component-based deterministic reward shaping (+ optional gold matching).
+            ref_out = None
+            if isinstance(batch, dict) and "reference_output" in batch:
+                ro = batch.get("reference_output")
+                if isinstance(ro, list) and i < len(ro):
+                    ref_out = ro[i]
+                else:
+                    ref_out = ro
+
             comps = compute_reward_components(
                 completion=c,
                 output_type=otype,
                 schema_validator=schema_validator,
                 allowed_top_level=allowed_top,
+                reference_output=str(ref_out) if ref_out is not None else None,
             )
             rewards.append(combine_reward(comps, cfg, output_type=otype))
         return rewards

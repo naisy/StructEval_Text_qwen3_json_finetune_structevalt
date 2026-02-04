@@ -44,6 +44,7 @@ def compute_reward_components(
     output_type: str | None = None,
     schema_validator=None,
     allowed_top_level: set[str] | None = None,
+    reference_output: str | None = None,
 ) -> dict[str, float]:
     """Compute reward components for a single model completion.
 
@@ -115,6 +116,18 @@ def compute_reward_components(
     else:
         out["extra_keys"] = 0.0
 
+    # Optional gold matching (format-aware). This is especially useful for HF datasets
+    # that don't include StructEval-T ATTRIBUTES blocks (raw_output_metric=[]).
+    if reference_output is not None and str(reference_output).strip():
+        ok_ref, obj_ref, _ = strict_parse(str(reference_output))
+        if ok and ok_ref and obj is not None and obj_ref is not None:
+            out["match"] = 1.0 if obj == obj_ref else 0.0
+        else:
+            # If strict parsing fails on either side, don't grant match.
+            out["match"] = 0.0
+    else:
+        out["match"] = 0.0
+
     return out
 
 
@@ -160,6 +173,10 @@ def combine_reward(components: dict[str, float], cfg: dict[str, Any], output_typ
     # base positives (format-specific)
     r += _cfg_get_typed(w, t, "w_parse", 1.0) * components.get("parse", 0.0)
     r += _cfg_get_typed(w, t, "w_only", 0.5) * components.get("only", 0.0)
+
+    # Optional gold matching (format-aware). If the dataset provides reference_output,
+    # this can provide a strong learning signal even when StructEval ATTRIBUTES are absent.
+    r += _cfg_get_typed(w, t, "w_match", 0.0) * components.get("match", 0.0)
 
     # JSON-only optional schema / constraints
     r += float(w.get("w_schema_valid", 2.0)) * components.get("schema_valid", 0.0)
