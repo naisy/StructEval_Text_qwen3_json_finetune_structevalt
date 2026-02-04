@@ -51,6 +51,9 @@ reward:
   w_parse_csv: 1.0
   w_only_csv: 0.5
 
+  # Gold match bonus (mainly useful for tasks that provide reference_output).
+  w_match: 0.0
+
   # StructEval JSON tasks do not share a global schema, so we keep schema-based
   # components disabled by default.
   w_schema_valid: 0.0

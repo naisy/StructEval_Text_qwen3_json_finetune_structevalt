@@ -52,6 +52,10 @@ reward:
   w_parse_csv: 1.0
   w_only_csv: 0.5
 
+  # Gold match bonus (HF datasets without ATTRIBUTES benefit from this).
+  # You can also override per format, e.g. w_match_toml.
+  w_match: 1.0
+
   # StructEval JSON tasks do not share a global schema, so we keep schema-based
   # components disabled by default.
   w_schema_valid: 0.0

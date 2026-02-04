@@ -85,6 +85,26 @@ def _infer_output_type(ex: Dict[str, Any]) -> str:
     return ""
 
 
+def _extract_reference_output(ex: Dict[str, Any], asst_msg: str | None) -> str:
+    """Get the final structured output (gold) from an HF example.
+
+    Priority:
+    1) Some datasets include a clean gold output in metadata (e.g., v5 variants).
+    2) Otherwise, parse the assistant message and extract the `Output:` section.
+    """
+    md = ex.get("metadata")
+    if isinstance(md, dict):
+        for k in ("output", "final_output", "answer", "gold", "target"):
+            v = md.get(k)
+            if isinstance(v, str) and v.strip():
+                return extract_final_output(v)
+    if isinstance(ex.get("output"), str) and str(ex.get("output") or "").strip():
+        return extract_final_output(str(ex.get("output")))
+    if asst_msg:
+        return extract_final_output(asst_msg)
+    return ""
+
+
 def _extract_messages(ex: Dict[str, Any]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
     """Return (system, user, assistant) contents from a messages list."""
     msgs = ex.get("messages")
@@ -197,11 +217,11 @@ def main() -> None:
             if not isinstance(ex, dict):
                 continue
             sys_msg, user_msg, asst_msg = _extract_messages(ex)
-            if not user_msg or not asst_msg:
+            if not user_msg:
                 continue
             out_type = _infer_output_type(ex)
 
-            out_text = extract_final_output(asst_msg)
+            out_text = _extract_reference_output(ex, asst_msg)
             if not out_text:
                 continue
 
@@ -214,23 +234,30 @@ def main() -> None:
             sft_rows.append(row)
 
             if args.write_grpo_tasks:
+                # Many allowed HF datasets (notably u-10bei/*) do NOT include StructEval-T
+                # style "ATTRIBUTES:" blocks in the prompt.
+                #
+                # We still want GRPO tasks to be generated for those datasets; in that case
+                # raw_output_metric becomes an empty list and the GRPO reward must fall back
+                # to deterministic component rewards (e.g., parse/only) and/or gold matching.
                 attrs = extract_attributes_from_prompt(user_msg)
-                if attrs:
-                    grpo_tasks.append(
-                        {
-                            "task_id": f"hf_{task_id:08d}",
-                            "query": user_msg.strip(),
-                            "feature_requirements": "",
-                            "task_name": name,
-                            "input_type": "Text",
-                            "output_type": out_type or "JSON",
-                            "query_example": "",
-                            "VQA": [],
-                            "raw_output_metric": attrs,
-                            "rendering": False,
-                        }
-                    )
-                    task_id += 1
+                grpo_tasks.append(
+                    {
+                        "task_id": f"hf_{task_id:08d}",
+                        "query": user_msg.strip(),
+                        "feature_requirements": "",
+                        "task_name": name,
+                        "input_type": "Text",
+                        "output_type": out_type or "JSON",
+                        "query_example": "",
+                        "VQA": [],
+                        "raw_output_metric": attrs,
+                        # Gold output (Output-only; no CoT). Used for match-based reward.
+                        "reference_output": out_text,
+                        "rendering": False,
+                    }
+                )
+                task_id += 1
 
     info(f"[import_hf_structured_sft] Writing SFT JSONL: {sft_out} rows={len(sft_rows)}")
     with sft_out.open("w", encoding="utf-8") as f:
