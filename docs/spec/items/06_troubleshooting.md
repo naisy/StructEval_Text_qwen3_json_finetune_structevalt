@@ -19,6 +19,24 @@
 - 現行 judge テンプレートは JSON タスク向け。
 - デフォルトで JSON のみに適用する（`configs/judge.yaml` の `output_types`）。
 
+## 2b) SFT/GRPO 後に TOML の syntax_score が 0 になる
+
+学習データ自体が TOML として正しくても、**プロンプトに TOML ルールが無い**と、
+モデルが JSON/YAML 由来の癖を混ぜて構文を壊しやすい。
+
+典型例:
+- 配列末尾カンマ: `["a",]`
+- `key: value` の混入（TOML は `key = value`）
+- `museum = ...` と `[[museum]]` を併用（immutable namespace エラー）
+- `[artifact]` を繰り返す（本来は `[[artifact]]`）
+
+対策:
+- `src/data/format_rules.py` に形式別ルールを定義し、
+  `src.data.dataset.build_prompt()` で `output_type` に応じて system prompt に注入する。
+
+確認:
+- `python -m src.tools.validate_eval_outputs --input outputs/eval/structeval_t_eval.json`
+
 ## 3) パース失敗の詳細を確認したい
 
 - `python -m src.tools.validate_eval_outputs --input outputs/eval/structeval_t_eval.json`
