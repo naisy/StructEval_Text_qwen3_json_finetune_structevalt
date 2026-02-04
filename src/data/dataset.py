@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from src.utils.logging import warn
+from src.data.format_rules import FORMAT_RULES
 
 
 def load_jsonl(path: str | Path) -> list[dict[str, Any]]:
@@ -43,12 +44,27 @@ def load_dataset_any(path: str | Path, fmt: str) -> list[dict[str, Any]]:
 
 
 def build_prompt(example: dict[str, Any], cfg: dict) -> str:
-    """Build a JSON-only instruction prompt.
+    """Build an instruction prompt.
 
     - For StructEval-style data, use `example['query']` as-is (already composed).
     - Otherwise use {instruction, requirements} style fields.
+
+    This function also injects lightweight, format-specific constraints into the
+    system message based on `example['output_type']` (JSON/YAML/TOML/XML/CSV).
+    This is important for evaluation and GRPO where rewards depend on
+    deterministic parsers.
     """
     sys_msg = cfg["prompting"]["system"].strip()
+
+    # Inject format-specific rules (JSON/YAML/TOML/XML/CSV) to prevent
+    # cross-format leakage (e.g., JSON-style ':' in TOML, trailing commas).
+    # This is important for BOTH eval and GRPO: deterministic parsers drive
+    # the syntax score / reward.
+    ot = str(example.get("output_type") or "").strip().upper()
+    extra = FORMAT_RULES.get(ot)
+    if extra:
+        sys_msg = f"{sys_msg}\n\n{extra}".strip()
+
     user_prefix = cfg["prompting"].get("user_prefix", "")
     schema_prefix = cfg["prompting"].get("schema_prefix", "")
     out_prefix = cfg["prompting"].get("output_prefix", "")
