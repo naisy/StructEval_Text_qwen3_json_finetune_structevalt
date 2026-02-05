@@ -35,6 +35,10 @@ Wildcard semantics: **any** element/property value that satisfies the remainder 
 Optional fields:
 - `feature_requirements`, `task_name`, `input_type`, `output_type`, ...
 
+Additional optional fields used by GRPO (mainly for HF-imported datasets):
+- `reference_output` (string) - gold structured output (output-only; no CoT). When present,
+  GRPO reward can add a *match* bonus by comparing the parsed outputs.
+
 
 Note:
 - Public StructEval(-T) JSON tasks do not provide a unique gold output.

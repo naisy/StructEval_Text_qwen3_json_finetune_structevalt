@@ -132,23 +132,37 @@ def run_grpo(
             final = 0.2*syntax + 0.8*key_validation
         Otherwise we fallback to component-based reward.
         """
-        rewards = []
-        # TRL sometimes provides `kwargs['batch']` or similar; keep robust.
-        batch = kwargs.get("batch")
-        raw_metrics = None
-        if isinstance(batch, dict) and "raw_output_metric" in batch:
-            raw_metrics = batch["raw_output_metric"]
+        rewards: list[float] = []
+
+        # TRL's GRPO passes dataset columns as keyword arguments to reward functions.
+        # In older templates we tried to read everything from kwargs['batch'], but that
+        # is not guaranteed to be present (and often isn't).
+        #
+        # Supported inputs (either top-level kwargs, or nested under `batch`):
+        #   - raw_output_metric : list[list[str]] or list[str] or []
+        #   - output_type       : list[str] or str
+        #   - reference_output  : list[str] or str   (gold output; output-only)
+        batch = kwargs.get("batch") if isinstance(kwargs.get("batch"), dict) else None
+
+        def _get(name: str):
+            if name in kwargs:
+                return kwargs.get(name)
+            if batch is not None and name in batch:
+                return batch.get(name)
+            return None
+
+        raw_metrics = _get("raw_output_metric")
+        output_types = _get("output_type")
+        ref_outputs = _get("reference_output")
 
         # If raw_metrics is provided per-example, it may be a list-of-lists aligned with completions.
         for i, c in enumerate(completions):
             # Derive output_type for this example if provided by the dataset.
             otype = None
-            if isinstance(batch, dict) and "output_type" in batch:
-                ots = batch.get("output_type")
-                if isinstance(ots, list) and i < len(ots):
-                    otype = ots[i]
-                else:
-                    otype = ots
+            if isinstance(output_types, list) and i < len(output_types):
+                otype = output_types[i]
+            elif output_types is not None:
+                otype = output_types
             otype = str(otype or "JSON").strip().upper()
 
             # Extract payload and flag extraneous wrapper text. We always score the payload,
@@ -178,12 +192,10 @@ def run_grpo(
 
             # Otherwise use component-based deterministic reward shaping (+ optional gold matching).
             ref_out = None
-            if isinstance(batch, dict) and "reference_output" in batch:
-                ro = batch.get("reference_output")
-                if isinstance(ro, list) and i < len(ro):
-                    ref_out = ro[i]
-                else:
-                    ref_out = ro
+            if isinstance(ref_outputs, list) and i < len(ref_outputs):
+                ref_out = ref_outputs[i]
+            elif ref_outputs is not None:
+                ref_out = ref_outputs
 
             comps = compute_reward_components(
                 completion=c,
