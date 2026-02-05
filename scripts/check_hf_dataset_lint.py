@@ -4,45 +4,33 @@
 This script downloads a dataset via `datasets` and verifies that the *gold*
 assistant output can be parsed as the claimed format (JSON/YAML/TOML/XML/CSV).
 
-Why this exists
---------------
-Some datasets include preambles ("Sure! ..."), code fences, or an "Output:"
-section. For training/evaluation, we usually want the final structured blob.
-We therefore:
-
-1) infer output_type from each example
-2) extract the final structured output using `extract_final_output()`
-3) run the project's strict parser checks (StructEval-T syntax strictness)
-
-The report shows how many examples fail strict parsing per format and prints
-sample failing items.
-
-Example
--------
-python scripts/check_hf_dataset_lint.py \
-  --datasets u-10bei/structured_data_with_cot_dataset_512_v2 \
-  --split train --max-examples 200 --show 5
-
-Notes
------
-- This script requires internet access at runtime to download HF datasets.
-- It does not modify datasets; it only inspects and reports.
+Enhancements:
+- Adds --dump-failures <path> to dump ALL failing items as JSONL.
+- Adds repo root to sys.path so `import src...` works without PYTHONPATH=.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
+import sys
 from collections import Counter, defaultdict
-from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from dataclasses import dataclass, asdict
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Tuple
 
-from src.data.import_hf_structured_sft import (
+# Make `src` importable when executed as a script.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from src.data.import_hf_structured_sft import (  # noqa: E402
     _extract_messages,
     _infer_output_type,
     _normalize_output_type,
     _extract_reference_output,
 )
-from src.structeval_t.scorer import eval_structeval_t
+from src.structeval_t.scorer import eval_structeval_t  # noqa: E402
 
 
 def _ensure_deps() -> None:
@@ -69,8 +57,15 @@ def _preview(s: str, n: int = 240) -> str:
     return s[: n - 3] + "..."
 
 
+def _json_sanitize(obj: Any) -> Any:
+    """Make obj JSON-serializable for JSONL dumps (best-effort)."""
+    try:
+        return json.loads(json.dumps(obj, ensure_ascii=False))
+    except Exception:
+        return json.loads(json.dumps(obj, ensure_ascii=False, default=str))
+
+
 def _iter_examples(ds) -> Iterable[Tuple[int, Dict[str, Any]]]:
-    # datasets.Dataset is indexable, but iterating yields dicts.
     for i, ex in enumerate(ds):
         yield i, ex
 
@@ -111,6 +106,11 @@ def main() -> int:
         action="store_true",
         help="Pass trust_remote_code=True to datasets.load_dataset (only if needed).",
     )
+    p.add_argument(
+        "--dump-failures",
+        default="",
+        help="If set, dump ALL failing items as JSONL to this path (includes raw_item).",
+    )
     args = p.parse_args()
 
     names = [n.strip() for n in args.datasets.split(",") if n.strip()]
@@ -121,6 +121,9 @@ def main() -> int:
     fail_by_type: Counter[str] = Counter()
     fail_cases_by_ds: defaultdict[str, List[FailCase]] = defaultdict(list)
     unknown_type_by_ds: defaultdict[str, int] = defaultdict(int)
+
+    # JSONL dump buffer
+    dump_records: List[Dict[str, Any]] = []
 
     for name in names:
         ds = datasets.load_dataset(name, split=args.split, trust_remote_code=bool(args.trust_remote_code))
@@ -137,33 +140,62 @@ def main() -> int:
                 continue
 
             total_by_type[output_type] += 1
+
             if not extracted.strip():
                 fail_by_type[output_type] += 1
-                fail_cases_by_ds[name].append(
-                    FailCase(
-                        dataset=name,
-                        idx=idx,
-                        output_type=output_type,
-                        reason="empty_extracted_output",
-                        extracted_output_preview="",
-                        raw_assistant_preview=_preview(raw_asst),
-                    )
+                fc = FailCase(
+                    dataset=name,
+                    idx=idx,
+                    output_type=output_type,
+                    reason="empty_extracted_output",
+                    extracted_output_preview="",
+                    raw_assistant_preview=_preview(raw_asst),
                 )
+                fail_cases_by_ds[name].append(fc)
+
+                if args.dump_failures:
+                    dump_records.append(
+                        {
+                            "dataset": name,
+                            "split": args.split,
+                            "idx": idx,
+                            "output_type": output_type,
+                            "reason": "empty_extracted_output",
+                            "extracted": extracted,
+                            "raw_asst": raw_asst,
+                            "raw_item": _json_sanitize(ex),
+                            "failcase": asdict(fc),
+                        }
+                    )
                 continue
 
             ok = _strict_syntax_ok(extracted, output_type)
             if not ok:
                 fail_by_type[output_type] += 1
-                fail_cases_by_ds[name].append(
-                    FailCase(
-                        dataset=name,
-                        idx=idx,
-                        output_type=output_type,
-                        reason="strict_parse_failed",
-                        extracted_output_preview=_preview(extracted),
-                        raw_assistant_preview=_preview(raw_asst),
-                    )
+                fc = FailCase(
+                    dataset=name,
+                    idx=idx,
+                    output_type=output_type,
+                    reason="strict_parse_failed",
+                    extracted_output_preview=_preview(extracted),
+                    raw_assistant_preview=_preview(raw_asst),
                 )
+                fail_cases_by_ds[name].append(fc)
+
+                if args.dump_failures:
+                    dump_records.append(
+                        {
+                            "dataset": name,
+                            "split": args.split,
+                            "idx": idx,
+                            "output_type": output_type,
+                            "reason": "strict_parse_failed",
+                            "extracted": extracted,
+                            "raw_asst": raw_asst,
+                            "raw_item": _json_sanitize(ex),
+                            "failcase": asdict(fc),
+                        }
+                    )
 
         print(f"\n== Dataset: {name} (split={args.split}, checked={n_seen}) ==")
         if unknown_type_by_ds[name]:
@@ -172,7 +204,6 @@ def main() -> int:
         if not fails:
             print("- No strict-parse failures found.")
         else:
-            # summarize per type in this dataset
             per_type = Counter([f.output_type for f in fails])
             print("- Failures by output_type:")
             for k, v in per_type.most_common():
@@ -194,8 +225,17 @@ def main() -> int:
     else:
         print("No typed examples were found (could not infer output_type).")
 
+    if args.dump_failures:
+        out_path = Path(args.dump_failures)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with out_path.open("w", encoding="utf-8") as f:
+            for rec in dump_records:
+                f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
+        print(f"[dump] wrote failures: {len(dump_records)} -> {out_path}")
+
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
