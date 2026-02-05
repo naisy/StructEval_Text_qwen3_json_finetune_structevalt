@@ -123,6 +123,10 @@ def _parse_by_output_type(generation: str, output_type: str) -> tuple[bool, Any 
 
     if ot == "YAML":
         ok, obj, _ = parse_yaml(generation)
+        # YAML is extremely permissive: plain prose parses as a scalar string.
+        # For our structured-output tasks, treat non-(dict/list) as a syntax failure.
+        if ok and not isinstance(obj, (dict, list)):
+            return False, None, False
         return ok, obj, ok
 
     if ot == "TOML":
@@ -141,6 +145,17 @@ def _parse_by_output_type(generation: str, output_type: str) -> tuple[bool, Any 
         ok, rows, _ = parse_csv(generation)
         if not ok or rows is None:
             return False, None, False
+        # CSV is also permissive: a single prose line becomes a 1x1 table.
+        # Require at least 2 columns somewhere, and consistent column counts.
+        max_cols = max((len(r) for r in rows), default=0)
+        if max_cols < 2:
+            return False, None, False
+        # Strictness: all non-empty rows must match header width when a header exists.
+        header_w = len(rows[0]) if rows else 0
+        if header_w >= 2:
+            for r in rows[1:]:
+                if len(r) not in (0, header_w):
+                    return False, None, False
         obj = _csv_rows_to_obj(rows)
         return True, obj, True
 
