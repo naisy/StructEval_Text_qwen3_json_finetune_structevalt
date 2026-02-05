@@ -168,7 +168,16 @@ def run_grpo(
         model = apply_lora(model, lora_cfg)
 
     # Reward function: TRL expects a callable that maps (prompts, completions) to rewards.
+    # Debug controls (set env vars to enable):
+    #   GRPO_DEBUG_STEPS=3  -> log reward/advantage stats for first N reward_fn calls
+    #   GRPO_DEBUG_MAX_GROUPS=2 -> log at most this many prompt-groups per call
+    #   GRPO_DEBUG_SHOW_TEXT=1  -> include short prompt/completion previews
+    _dbg_steps = int(os.getenv('GRPO_DEBUG_STEPS', '0') or '0')
+    _dbg_max_groups = int(os.getenv('GRPO_DEBUG_MAX_GROUPS', '2') or '2')
+    _dbg_show_text = bool(int(os.getenv('GRPO_DEBUG_SHOW_TEXT', '0') or '0'))
+    _dbg_call_idx = 0
     def reward_fn(prompts: list[str], completions: list[str], **kwargs):
+        nonlocal _dbg_call_idx
         """Composite reward.
 
         If the dataset example provides `raw_output_metric` (StructEval-T style),
@@ -249,6 +258,43 @@ def run_grpo(
                 reference_output=str(ref_out) if ref_out is not None else None,
             )
             rewards.append(combine_reward(comps, cfg, output_type=otype))
+        # --------------------------------------------------------------
+        # GRPO debug logging: reward diversity & (approx) advantages
+        # --------------------------------------------------------------
+        _dbg_call_idx += 1
+        if _dbg_steps > 0 and _dbg_call_idx <= _dbg_steps:
+            try:
+                from collections import OrderedDict
+                import math
+                # Group by identical prompt string (GRPO repeats prompts for multiple generations).
+                groups = OrderedDict()
+                for ptxt, r, ctxt in zip(prompts, rewards, completions):
+                    g = groups.setdefault(ptxt, {"rewards": [], "comps": []})
+                    g["rewards"].append(float(r))
+                    g["comps"].append(ctxt)
+                info(f"[GRPO_DEBUG] reward_fn_call={_dbg_call_idx} prompts={len(groups)} items={len(rewards)}")
+                shown = 0
+                for ptxt, g in groups.items():
+                    rs = g["rewards"]
+                    if not rs:
+                        continue
+                    m = sum(rs) / len(rs)
+                    var = sum((x - m) ** 2 for x in rs) / max(1, (len(rs) - 1))
+                    sd = math.sqrt(var)
+                    adv = [(x - m) / (sd + 1e-8) for x in rs]
+                    near_zero = sum(1 for a in adv if abs(a) < 1e-6)
+                    info(f"[GRPO_DEBUG] group gens={len(rs)} reward_mean={m:.4f} reward_std={sd:.6f} adv_near_zero={near_zero}/{len(adv)}")
+                    if _dbg_show_text:
+                        pprev = (ptxt[:200] + '...') if len(ptxt) > 200 else ptxt
+                        info(f"[GRPO_DEBUG] prompt_preview: {pprev.replace(chr(10), chr(92) + 'n')}")
+                        for j, (r, c) in enumerate(zip(rs, g["comps"])):
+                            cprev = (c[:200] + '...') if len(c) > 200 else c
+                            info(f"[GRPO_DEBUG]  gen{j} r={r:.4f} adv={adv[j]:.4f} comp_preview: {cprev.replace(chr(10), chr(92) + 'n')}")
+                    shown += 1
+                    if shown >= _dbg_max_groups:
+                        break
+            except Exception as e:
+                warn(f"[GRPO_DEBUG] failed to log rewards/advantages: {e}")
         return rewards
 
 
