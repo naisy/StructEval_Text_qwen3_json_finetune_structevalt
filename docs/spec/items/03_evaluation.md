@@ -33,3 +33,5 @@ SFT/GRPO の学習完了直後に自動で評価を走らせる場合は、
 
 `src.data.validators` の strict parser で JSON/YAML/TOML/XML/CSV のパース可否を判定する。
 （この部分は LLM を使わない）
+> 注意: YAML/CSV は parse 自体が寛容なため、本リポジトリでは「構造として成立」を追加条件にしています（YAML は dict/list、CSV は2列以上など）。
+

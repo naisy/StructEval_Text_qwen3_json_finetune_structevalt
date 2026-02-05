@@ -115,3 +115,16 @@ Qwen3 Instruct は `tokenizer.chat_template` が `<|im_start|>role ... <|im_end|
 確認:
 - `data/train_hf_grpo_tasks.json` の数件を見て `reference_output` が入っているか
 - `python - <<'PY'\nimport json\nfrom itertools import islice\nfor p in ['data/train_hf_grpo_tasks.json','data/valid_hf_grpo_tasks.json']:\n    try:\n        d=json.load(open(p,'r',encoding='utf-8'))\n    except FileNotFoundError:\n        continue\n    print(p,'n=',len(d))\n    for ex in islice(d,3):\n        print(' output_type=',ex.get('output_type'),'ref_len=',len((ex.get('reference_output')or'')))\nPY`
+
+## 7) CSV→XML で snake_case が分解される（<some><thing> になる）
+
+原因候補:
+- XML のタグ名を推測する際に、モデルが `_` を区切りとして扱ってしまう。
+
+対策:
+- `src/data/format_rules.py` の XML ルールで「`some_thing` は `<some_thing>` のまま」と明示し、GRPO で矯正する。
+
+補足:
+- この症状は構文としては XML が成立するため、キー検証（raw_output_metric）で初めて落ちます。
+  まずは eval レポートで該当タスクの required path を確認し、タグ名の期待が `_` を含むかを確認してください。
+

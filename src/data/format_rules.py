@@ -55,6 +55,8 @@ XML rules (must follow):
 - Use exactly ONE root element that contains the entire document.
 - Close all tags properly and quote all attribute values.
 - Escape special characters in text/attributes (&, <, >, \").
+- Preserve field/tag names exactly as given (including underscores `_`).
+  - Example: `some_thing` must stay as `<some_thing>...` (do NOT split into `<some><thing>`).
 - Output ONLY the XML (no prose, no markdown, no code fences).
 """,
     "CSV": """\
