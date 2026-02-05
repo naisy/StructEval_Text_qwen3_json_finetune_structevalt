@@ -61,6 +61,11 @@ reward:
   # You can also override per format, e.g. w_match_toml.
   w_match: 1.0
 
+  # Dense soft-match bonus (string-similarity on canonicalized structured output).
+  # This avoids "reward collapse" where parse/only become constant early and GRPO
+  # shows loss=0.0 with grad_norm=0.0. Keep >=0.5 for HF datasets.
+  w_match_soft: 1.0
+
   # StructEval JSON tasks do not share a global schema, so we keep schema-based
   # components disabled by default.
   w_schema_valid: 0.0

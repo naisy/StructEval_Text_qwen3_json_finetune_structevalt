@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 from typing import Any, Callable, Tuple
 
 from src.data import validators as V
@@ -129,13 +130,38 @@ def compute_reward_components(
     if reference_output is not None and str(reference_output).strip():
         ref_payload, _ = V.extract_payload_and_extraneous(str(reference_output), t)
         ok_ref, obj_ref, _ = strict_parse(ref_payload)
+        # Strict match (exact object equality)
         if ok and ok_ref and obj is not None and obj_ref is not None:
             out["match"] = 1.0 if obj == obj_ref else 0.0
         else:
-            # If strict parsing fails on either side, don't grant match.
             out["match"] = 0.0
+
+        # Soft match: normalized similarity between canonicalized structured outputs.
+        #
+        # Why:
+        # - With only parse/only rewards, GRPO quickly becomes constant once the model
+        #   learns to emit syntactically valid, format-only outputs.
+        # - Even with strict match, many tasks have multiple valid answers or the
+        #   model may be close-but-not-equal, resulting in sparse rewards.
+        #
+        # Soft matching provides a *dense* learning signal as long as both sides are
+        # parseable (strict or best-effort). This is especially important for HF
+        # datasets where the prompt may not contain StructEval-T ATTRIBUTES blocks.
+        obj_a = obj_for_checks
+        # Prefer strict ref object, but fall back to best-effort when needed.
+        obj_b = obj_ref
+        if obj_a is None or obj_b is None:
+            out["match_soft"] = 0.0
+        else:
+            try:
+                s_a = V.canonicalize_structured(obj_a, t)
+                s_b = V.canonicalize_structured(obj_b, t)
+                out["match_soft"] = float(difflib.SequenceMatcher(a=s_a, b=s_b).ratio())
+            except Exception:
+                out["match_soft"] = 0.0
     else:
         out["match"] = 0.0
+        out["match_soft"] = 0.0
 
     return out
 
@@ -186,6 +212,9 @@ def combine_reward(components: dict[str, float], cfg: dict[str, Any], output_typ
     # Optional gold matching (format-aware). If the dataset provides reference_output,
     # this can provide a strong learning signal even when StructEval ATTRIBUTES are absent.
     r += _cfg_get_typed(w, t, "w_match", 0.0) * components.get("match", 0.0)
+
+    # Dense, format-aware soft matching against reference_output.
+    r += _cfg_get_typed(w, t, "w_match_soft", 0.0) * components.get("match_soft", 0.0)
 
     # JSON-only optional schema / constraints
     r += float(w.get("w_schema_valid", 2.0)) * components.get("schema_valid", 0.0)

@@ -518,6 +518,46 @@ def is_csv_only(text: str) -> bool:
     return _is_structured_csv(text)
 
 
+# ---------------------------------------------------------------------------
+# Canonicalization (for soft matching)
+# ---------------------------------------------------------------------------
+
+
+def canonicalize_structured(obj: Any, output_type: str) -> str:
+    """Return a stable string representation of a parsed structured output.
+
+    This is used to compute a dense "soft match" reward in GRPO when a
+    `reference_output` is available.
+
+    The representation is *not* intended to round-trip to the original format.
+    It is only intended to be stable enough that string similarity reflects
+    structural similarity.
+    """
+    t = (output_type or "JSON").strip().upper()
+    try:
+        if t in {"JSON", "YAML", "TOML"}:
+            # Normalize to JSON with sorted keys for stability.
+            return json.dumps(obj, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        if t == "XML":
+            if isinstance(obj, ET.Element):
+                return ET.tostring(obj, encoding="unicode")
+            return str(obj)
+        if t == "CSV":
+            # Expect list[list[str]]
+            if isinstance(obj, list):
+                rows = []
+                for r in obj:
+                    if isinstance(r, (list, tuple)):
+                        rows.append(",".join(str(x) for x in r))
+                    else:
+                        rows.append(str(r))
+                return "\n".join(rows)
+            return str(obj)
+    except Exception:
+        return str(obj)
+    return str(obj)
+
+
 def build_schema_validator(schema: dict | str | Path) -> Draft202012Validator:
     """Build a JSON Schema validator.
 

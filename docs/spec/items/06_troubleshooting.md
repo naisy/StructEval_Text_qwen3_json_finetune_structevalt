@@ -92,3 +92,26 @@ Qwen3 Instruct は `tokenizer.chat_template` が `<|im_start|>role ... <|im_end|
 
 対策:
 - `src.data.dataset.build_prompt()` は Qwen3 互換の `<|im_start|>...<|im_end|>` 形式で組み立てる。
+
+### 6b) GRPO の loss が 0.0 のまま（grad_norm=0.0 で reward がほぼ一定）
+
+症状（今回のログ例に近い）:
+- `loss: 0.0` が最初から続く
+- `grad_norm: 0.0` が続く
+- `rewards/reward_fn/std: 0.0` が続く（※per_device_train_batch_size=1 だと標準偏差表示は常に 0 になりやすい）
+
+このパターンは **RL の advantage が 0 に潰れている**可能性が高い。
+典型原因は「reward が各生成で同じ値になってしまう」こと。
+
+例:
+- reward が `parse + only` だけで、モデルがすでに形式だけ出せている
+- `w_match`（厳密一致）が入っているが、全生成が一律に不一致で reward が一定
+
+対策:
+- HF データセットの `reference_output` を使って、reward に **dense な差**を入れる
+  - `w_match_soft`（ソフト一致）を有効化（`configs/grpo_hf.yaml` がデフォルト）
+  - さらに厳密一致の `w_match` も併用すると、完全一致を押し上げられる
+
+確認:
+- `data/train_hf_grpo_tasks.json` の数件を見て `reference_output` が入っているか
+- `python - <<'PY'\nimport json\nfrom itertools import islice\nfor p in ['data/train_hf_grpo_tasks.json','data/valid_hf_grpo_tasks.json']:\n    try:\n        d=json.load(open(p,'r',encoding='utf-8'))\n    except FileNotFoundError:\n        continue\n    print(p,'n=',len(d))\n    for ex in islice(d,3):\n        print(' output_type=',ex.get('output_type'),'ref_len=',len((ex.get('reference_output')or'')))\nPY`
