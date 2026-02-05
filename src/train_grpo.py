@@ -104,6 +104,45 @@ def run_grpo(
     dtype = torch.bfloat16 if cfg["training"].get("bf16", False) else torch.float16
     model = load_model(model_name, dtype=dtype, trust_remote_code=cfg["model"].get("trust_remote_code", True))
 
+    # ------------------------------------------------------------------
+    # Generation / special-token safety
+    #
+    # GRPO uses on-the-fly generation. If PAD/EOS are not configured,
+    # generation can fail to stop early (especially for chat models), which
+    # makes completions stick to max_completion_length and hurts learning
+    # signal (rewards become almost constant).
+    # ------------------------------------------------------------------
+    if getattr(tok, "pad_token_id", None) is None:
+        # Many chat tokenizers omit PAD; align PAD to EOS to keep generation sane.
+        if getattr(tok, "eos_token", None) is not None:
+            tok.pad_token = tok.eos_token
+        else:  # pragma: no cover
+            # Last resort: set something to avoid `None`.
+            tok.add_special_tokens({"pad_token": "<|pad|>"})
+            try:
+                model.resize_token_embeddings(len(tok))
+            except Exception:
+                pass
+
+    # Mirror tokenizer special tokens into model/generation config.
+    try:
+        if getattr(model.config, "eos_token_id", None) is None and getattr(tok, "eos_token_id", None) is not None:
+            model.config.eos_token_id = tok.eos_token_id
+        if getattr(model.config, "pad_token_id", None) is None and getattr(tok, "pad_token_id", None) is not None:
+            model.config.pad_token_id = tok.pad_token_id
+    except Exception:
+        pass
+
+    try:
+        gen_cfg = getattr(model, "generation_config", None)
+        if gen_cfg is not None:
+            if getattr(gen_cfg, "eos_token_id", None) is None and getattr(tok, "eos_token_id", None) is not None:
+                gen_cfg.eos_token_id = tok.eos_token_id
+            if getattr(gen_cfg, "pad_token_id", None) is None and getattr(tok, "pad_token_id", None) is not None:
+                gen_cfg.pad_token_id = tok.pad_token_id
+    except Exception:
+        pass
+
     # If the SFT checkpoint was saved as a PEFT adapter, loading it may yield a PeftModel.
     # Applying LoRA again would stack adapters (PEFT2重). That's almost never what we want here.
     # We default to merging/unloading the existing adapter, then applying the GRPO LoRA config.
