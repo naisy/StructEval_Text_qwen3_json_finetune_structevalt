@@ -10,6 +10,7 @@ PYTHONPATH="$(pwd)" python -m src.data.import_hf_structured_sft \
   --datasets ${DATASETS} \
   --split "${SPLIT}" \
   --out-sft-jsonl data/hf_sft.jsonl \
+  --filter-invalid \
   --shuffle-seed 42
 
 PYTHONPATH="$(pwd)" python -m src.data.prepare_sft_split \

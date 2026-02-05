@@ -20,6 +20,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from src.data import validators as V
 from src.utils.logging import info, warn
 
 
@@ -288,6 +289,36 @@ def load_hf(dataset_name: str, split: str) -> Iterable[Dict[str, Any]]:
     return ds
 
 
+
+def _is_valid_strict_structured_output(text: str, output_type: str) -> bool:
+    """Return True iff `text` is *strictly* valid and contains no extra wrapper.
+
+    We use the same strict parsers as StructEval-T / GRPO rewards.
+    """
+    t = _normalize_output_type(output_type) or "JSON"
+    payload, has_extraneous = V.extract_payload_and_extraneous(text, t)
+    if has_extraneous:
+        return False
+    if t == "JSON":
+        ok, _obj, _err = V.parse_json(payload)
+        return bool(ok)
+    if t == "YAML":
+        ok, _obj, _err = V.parse_yaml(payload)
+        return bool(ok)
+    if t == "TOML":
+        ok, _obj, _err = V.parse_toml(payload)
+        return bool(ok)
+    if t == "XML":
+        ok, _obj, _err = V.parse_xml(payload)
+        return bool(ok)
+    if t == "CSV":
+        ok, _obj, _err = V.parse_csv(payload)
+        return bool(ok)
+    # Unknown label: fall back to JSON strictness.
+    ok, _obj, _err = V.parse_json(payload)
+    return bool(ok)
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--datasets", nargs="+", required=True, help="HF dataset names (e.g. u-10bei/..., daichira/...)")
@@ -295,6 +326,11 @@ def main() -> None:
     p.add_argument("--out-sft-jsonl", default="data/hf_sft.jsonl")
     p.add_argument("--out-grpo-tasks", default="data/hf_grpo_tasks.json")
     p.add_argument("--write-grpo-tasks", action="store_true", help="Also write StructEval-T style tasks for GRPO/eval")
+    p.add_argument(
+        "--filter-invalid",
+        action="store_true",
+        help="Filter out examples whose extracted reference output fails strict parsing (recommended for SFT).",
+    )
     p.add_argument("--max-rows-per-dataset", type=int, default=0, help="0 means no limit")
     p.add_argument("--shuffle-seed", type=int, default=0)
     args = p.parse_args()
@@ -309,6 +345,9 @@ def main() -> None:
 
     sft_rows: List[Dict[str, Any]] = []
     grpo_tasks: List[Dict[str, Any]] = []
+
+    filtered_invalid = 0
+    filtered_invalid_by_type: dict[str, int] = {}
 
     task_id = 1
     for name in args.datasets:
@@ -330,6 +369,13 @@ def main() -> None:
             out_text = _extract_reference_output(ex, asst_msg, out_type)
             if not out_text:
                 continue
+
+            if args.filter_invalid and out_type:
+                t = _normalize_output_type(out_type)
+                if not _is_valid_strict_structured_output(out_text, t):
+                    filtered_invalid += 1
+                    filtered_invalid_by_type[t] = filtered_invalid_by_type.get(t, 0) + 1
+                    continue
 
             row = {
                 "query": user_msg.strip(),
@@ -366,6 +412,11 @@ def main() -> None:
                 task_id += 1
 
     info(f"[import_hf_structured_sft] Writing SFT JSONL: {sft_out} rows={len(sft_rows)}")
+    if args.filter_invalid and filtered_invalid:
+        info(
+            "[import_hf_structured_sft] Filtered invalid (strict-parse) examples: "
+            f"{filtered_invalid} by_type={filtered_invalid_by_type}"
+        )
     with sft_out.open("w", encoding="utf-8") as f:
         for r in sft_rows:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
