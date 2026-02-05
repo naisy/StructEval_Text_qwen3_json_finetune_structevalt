@@ -83,8 +83,13 @@ def build_prompt(example: dict[str, Any], cfg: dict) -> str:
         else:
             req_text = (req or "").strip()
 
+    # NOTE (Qwen3 chat template)
+    # Qwen3 Instruct models expect the <|im_start|>role ... <|im_end|> framing.
+    # Using the wrong sentinel tokens (e.g. <|system|>) makes the model treat the
+    # prompt as plain text, which often leads to runaway generations that never
+    # terminate early and collapses GRPO reward diversity.
     parts: list[str] = []
-    parts.append(f"<|system|>\n{sys_msg}")
+    parts.append(f"<|im_start|>system\n{sys_msg}<|im_end|>")
 
     if req_text and schema_prefix:
         user_block = f"{user_prefix}{instruction}\n\n{schema_prefix}{req_text}\n\n{out_prefix}"
@@ -93,7 +98,8 @@ def build_prompt(example: dict[str, Any], cfg: dict) -> str:
     else:
         user_block = f"{user_prefix}{instruction}\n\n{out_prefix}"
 
-    parts.append(f"<|user|>\n{user_block.strip()}")
+    parts.append(f"<|im_start|>user\n{user_block.strip()}<|im_end|>")
 
-    parts.append("<|assistant|>\n")
+    # Generation starts here.
+    parts.append("<|im_start|>assistant\n")
     return "\n".join(parts)

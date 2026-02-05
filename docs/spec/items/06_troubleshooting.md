@@ -75,3 +75,20 @@
 
 補足:
 - `group_by_length: true` は padding を減らせますが、長いバッチが集中するとピークVRAMが上がることがあります。
+
+## 6) GRPO の loss が 0.0 のまま／completions が常に max_length で切れる
+
+症状（TRL のログ例）:
+- `completions/mean_length == max_completion_length`
+- `completions/clipped_ratio == 1.0`
+- `completions/*terminated_length == 0.0`（EOS が出ていない）
+
+このとき **学習データが GRPO に向かない**というより、まず疑うべきは
+**プロンプトがモデルの chat template と合っていない**ことです。
+
+Qwen3 Instruct は `tokenizer.chat_template` が `<|im_start|>role ... <|im_end|>` を前提にしています。
+誤って `<|system|>/<|user|>/<|assistant|>` のような別系列の sentinel を埋め込むと、
+モデルはそれらをただの文字列として扱い、会話境界を認識できず生成が暴走しやすくなります。
+
+対策:
+- `src.data.dataset.build_prompt()` は Qwen3 互換の `<|im_start|>...<|im_end|>` 形式で組み立てる。
