@@ -82,9 +82,18 @@ def run_sft(
             )
         return out
 
-    # Build prompts (labels = full prompt + output)
-    train_texts = [build_prompt(ex, dcfg) + _target(ex) for ex in train_items]
-    valid_texts = [build_prompt(ex, dcfg) + _target(ex) for ex in valid_items]
+    # Build SFT texts.
+    # IMPORTANT:
+    # - `build_prompt()` ends with an *open* assistant turn ("<|im_start|>assistant\n").
+    # - For SFT we MUST close the assistant turn with "<|im_end|>" so the model
+    #   learns a reliable termination boundary. Without this, generations often
+    #   continue until max_new_tokens (mirrors the GRPO symptom where
+    #   completions/terminated_length stays 0).
+    def _sft_text(ex: dict) -> str:
+        return f"{build_prompt(ex, dcfg)}{_target(ex)}\n<|im_end|>"
+
+    train_texts = [_sft_text(ex) for ex in train_items]
+    valid_texts = [_sft_text(ex) for ex in valid_items]
 
     ds_train = Dataset.from_dict({"text": train_texts})
     ds_valid = Dataset.from_dict({"text": valid_texts})
