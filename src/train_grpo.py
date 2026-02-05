@@ -354,8 +354,32 @@ def run_grpo(
         save_json(rc.run_dir / "train_done.json", {"status": "interrupted"})
         return
     save_json(rc.run_dir / "train_done.json", {"status": "ok"})
-    trainer.save_model(str(out_dir / "final"))
-    tok.save_pretrained(str(out_dir / "final"))
+    final_dir = out_dir / "final"
+    # Mirror SFT behavior:
+    # - Save a merged full model to `checkpoints/final` for easy inference/eval.
+    # - Also keep the LoRA adapter-only weights in `checkpoints/adapter`.
+    merge_before_save = bool(
+        (cfg.get("training") or {}).get(
+            "merge_lora_before_save",
+            (cfg.get("lora") or {}).get("merge_before_save", True),
+        )
+    )
+    if PeftModel is not None and isinstance(trainer.model, PeftModel) and merge_before_save:
+        # 1) Save adapter-only weights.
+        adapter_dir = ensure_dir(out_dir / "adapter")
+        try:
+            trainer.model.save_pretrained(str(adapter_dir))
+        except Exception as e:  # pragma: no cover
+            warn(f"Failed to save GRPO adapter-only checkpoint: {e}")
+
+        # 2) Save merged full model for downstream inference/eval.
+        info("Merging LoRA adapter into base model before saving final GRPO checkpoint...")
+        merged = trainer.model.merge_and_unload()
+        merged.save_pretrained(str(final_dir), safe_serialization=True)
+        tok.save_pretrained(str(final_dir))
+    else:
+        trainer.save_model(str(final_dir))
+        tok.save_pretrained(str(final_dir))
     info("GRPO done.")
     if cfg.get("eval", {}).get("run_eval_after_train", False):
         import subprocess
