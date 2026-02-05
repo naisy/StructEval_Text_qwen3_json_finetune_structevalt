@@ -70,6 +70,11 @@ def run_grpo(
             "query": [ex.get("query") for ex in train_items],
             "raw_output_metric": [ex.get("raw_output_metric") for ex in train_items],
             "output_type": [ex.get("output_type") for ex in train_items],
+            # Gold output (output-only). Used by reward_fn via kwargs['reference_output'].
+            # This is critical for HF datasets where raw_output_metric is often empty
+            # (no StructEval-T ATTRIBUTES blocks in the prompt), otherwise rewards
+            # collapse to near-constant parse/only penalties and learning stalls.
+            "reference_output": [ex.get("reference_output") for ex in train_items],
         }
     )
 
