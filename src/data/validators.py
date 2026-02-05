@@ -254,6 +254,46 @@ def parse_yaml(text: str) -> Tuple[bool, Any | None, str | None]:
         return False, None, str(e)
 
 
+def parse_yaml_best_effort(text: str) -> Tuple[bool, Any | None, str | None, str | None]:
+    """Best-effort YAML extraction.
+
+    YAML is extremely permissive (plain prose is a valid scalar), so for our
+    structured-data tasks we require the parsed object to be a mapping or a
+    sequence.
+
+    Strategy (deterministic):
+    - If a fenced block exists, only consider that block.
+    - Otherwise, try to parse increasing line prefixes and keep the last
+      successful structured (dict/list) parse.
+
+    Returns: (ok, obj, err, used_substring)
+    """
+    inside, _outside = extract_first_fenced_block(text)
+    base = inside if inside is not None else text
+    t = strip_code_fences(base).strip()
+
+    # Fast path.
+    ok, obj, err = parse_yaml(t)
+    if ok and isinstance(obj, (dict, list)):
+        return True, obj, None, t
+
+    # Incremental prefix scan.
+    lines = t.splitlines()
+    last_ok: tuple[bool, Any | None, str | None, str | None] = (False, None, err, None)
+    max_lines = min(len(lines), 400)
+    for i in range(1, max_lines + 1):
+        cand = "\n".join(lines[:i]).strip()
+        if not cand:
+            continue
+        ok2, obj2, err2 = parse_yaml(cand)
+        if ok2 and isinstance(obj2, (dict, list)):
+            last_ok = (True, obj2, None, cand)
+        else:
+            # keep scanning; YAML often needs a later line to become structured
+            last_ok = last_ok if last_ok[0] else (False, None, err2, None)
+    return last_ok
+
+
 def is_yaml_only(text: str) -> bool:
     """Heuristic: prefer fenced-block-only outputs when fences are used.
 
@@ -288,6 +328,37 @@ def parse_toml(text: str) -> Tuple[bool, Any | None, str | None]:
         return False, None, str(e)
 
 
+def parse_toml_best_effort(text: str) -> Tuple[bool, Any | None, str | None, str | None]:
+    """Best-effort TOML extraction.
+
+    TOML parsing is strict and fails on trailing junk. We try to find the
+    longest line-prefix that parses.
+
+    Returns: (ok, obj, err, used_substring)
+    """
+    inside, _outside = extract_first_fenced_block(text)
+    base = inside if inside is not None else text
+    t = strip_code_fences(base).strip()
+
+    ok, obj, err = parse_toml(t)
+    if ok:
+        return True, obj, None, t
+
+    lines = t.splitlines()
+    last_ok: tuple[bool, Any | None, str | None, str | None] = (False, None, err, None)
+    max_lines = min(len(lines), 400)
+    for i in range(1, max_lines + 1):
+        cand = "\n".join(lines[:i]).strip()
+        if not cand:
+            continue
+        ok2, obj2, err2 = parse_toml(cand)
+        if ok2:
+            last_ok = (True, obj2, None, cand)
+        else:
+            last_ok = last_ok if last_ok[0] else (False, None, err2, None)
+    return last_ok
+
+
 def is_toml_only(text: str) -> bool:
     """Heuristic: prefer fenced-block-only outputs when fences are used.
 
@@ -317,6 +388,41 @@ def parse_xml(text: str) -> Tuple[bool, Any | None, str | None]:
         return True, root, None
     except Exception as e:
         return False, None, str(e)
+
+
+def parse_xml_best_effort(text: str) -> Tuple[bool, Any | None, str | None, str | None]:
+    """Best-effort XML extraction.
+
+    XML is strict and fails on trailing junk. We try to find the longest
+    line-prefix that forms a well-formed XML document.
+
+    Returns: (ok, root, err, used_substring)
+    """
+    inside, _outside = extract_first_fenced_block(text)
+    base = inside if inside is not None else text
+    t = strip_code_fences(base).strip()
+    # Trim leading non-XML characters but keep an extraneous signal in the caller.
+    lt = t.find("<")
+    if lt != -1:
+        t = t[lt:]
+
+    ok, root, err = parse_xml(t)
+    if ok:
+        return True, root, None, t
+
+    lines = t.splitlines()
+    last_ok: tuple[bool, Any | None, str | None, str | None] = (False, None, err, None)
+    max_lines = min(len(lines), 600)
+    for i in range(1, max_lines + 1):
+        cand = "\n".join(lines[:i]).strip()
+        if not cand:
+            continue
+        ok2, root2, err2 = parse_xml(cand)
+        if ok2:
+            last_ok = (True, root2, None, cand)
+        else:
+            last_ok = last_ok if last_ok[0] else (False, None, err2, None)
+    return last_ok
 
 
 def is_xml_only(text: str) -> bool:
@@ -352,6 +458,40 @@ def parse_csv(text: str) -> Tuple[bool, Any | None, str | None]:
         return True, rows, None
     except Exception as e:
         return False, None, str(e)
+
+
+def parse_csv_best_effort(text: str) -> Tuple[bool, Any | None, str | None, str | None]:
+    """Best-effort CSV extraction.
+
+    CSV parsing is permissive, but trailing junk lines (e.g., assistant chatter)
+    will usually break the "same number of columns" structure. We try to find a
+    longest prefix that:
+      - parses as CSV
+      - has at least one row with >=2 columns (to avoid prose-as-one-cell)
+
+    Returns: (ok, rows, err, used_substring)
+    """
+    inside, _outside = extract_first_fenced_block(text)
+    base = inside if inside is not None else text
+    t = strip_code_fences(base).strip()
+
+    ok, rows, err = parse_csv(t)
+    if ok and rows is not None and max((len(r) for r in rows), default=0) >= 2:
+        return True, rows, None, t
+
+    lines = t.splitlines()
+    last_ok: tuple[bool, Any | None, str | None, str | None] = (False, None, err, None)
+    max_lines = min(len(lines), 600)
+    for i in range(1, max_lines + 1):
+        cand = "\n".join(lines[:i]).strip()
+        if not cand:
+            continue
+        ok2, rows2, err2 = parse_csv(cand)
+        if ok2 and rows2 is not None and max((len(r) for r in rows2), default=0) >= 2:
+            last_ok = (True, rows2, None, cand)
+        else:
+            last_ok = last_ok if last_ok[0] else (False, None, err2, None)
+    return last_ok
 
 
 def is_csv_only(text: str) -> bool:

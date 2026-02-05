@@ -26,14 +26,15 @@ def _get_parsers(output_type: str) -> tuple[
     if t == "JSON":
         return V.parse_json, V.parse_json_best_effort, V.is_json_only
     if t == "YAML":
-        # YAML already tolerates whitespace/comments; we treat strict==best_effort.
-        return V.parse_yaml, None, V.is_yaml_only
+        # YAML itself is permissive, but our tasks expect structured outputs.
+        # Best-effort helps when the model appends chatter after a valid YAML block.
+        return V.parse_yaml, V.parse_yaml_best_effort, V.is_yaml_only
     if t == "TOML":
-        return V.parse_toml, None, V.is_toml_only
+        return V.parse_toml, V.parse_toml_best_effort, V.is_toml_only
     if t == "XML":
-        return V.parse_xml, None, V.is_xml_only
+        return V.parse_xml, V.parse_xml_best_effort, V.is_xml_only
     if t == "CSV":
-        return V.parse_csv, None, V.is_csv_only
+        return V.parse_csv, V.parse_csv_best_effort, V.is_csv_only
 
     # Default to JSON behavior for unknown labels.
     return V.parse_json, V.parse_json_best_effort, V.is_json_only
@@ -65,7 +66,8 @@ def compute_reward_components(
 
     ok, obj, _ = strict_parse(payload)
 
-    # Best-effort parsing is currently implemented only for JSON.
+    # Best-effort parsing: recover a parseable prefix when the model appends
+    # extra chatter after a structured block (common during early GRPO).
     ok_be, obj_be = False, None
     if best_effort_parse is not None:
         ok_be, obj_be, _err_be, _used = best_effort_parse(payload)
