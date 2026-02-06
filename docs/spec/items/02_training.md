@@ -12,6 +12,29 @@
 Hugging Face の提供データセットを使用する場合は、合成データの利用やデータ変更は行わない。
 データの取得は `scripts/run_sft_hf.sh` / `scripts/run_grpo_hf.sh` が担当する。
 
+#### HF データの「排除（cleaning）」
+
+Hugging Face データはそのまま学習に流すと、
+（a）出力の前後に余計な文章が混ざる、（b）prompt の指示形式と output_type がズレる、
+（c）変換タスクなのに入力と出力が整合していない、などの理由で学習が不安定になることがある。
+
+本プロジェクトでは `structeval_dataset_check.ipynb` で確定した排除手法を
+HF 変換時に適用する（データ内容の改変はしない。サンプルを落とすだけ）。
+
+- 実装: `src/data/hf_dataset_cleaning.py`（決定器）
+- 適用箇所: `src/data/import_hf_structured_sft.py` の `--filter-invalid`
+  - `scripts/run_sft_hf.sh` / `scripts/run_grpo_hf.sh` から呼ばれる
+
+排除ポリシー（要点）:
+
+- **base_ok**（必須）
+  - output_type の strict parse が成功
+  - prompt から推定した target format と output_type が一致
+  - structured output の前後に余計な文章が無い（fence 外テキスト等）
+- 追加で、変換タスク（input payload あり）については
+  **入力と出力の意味的整合が明確に FAIL のものを落とす**（UNKNOWN は残す）
+  - XML は containment F1 が高い soft match を許容する（デフォルト閾値 0.97）
+
 ## 学習スクリプト
 
 - SFT: `scripts/run_sft.sh` / `scripts/run_sft_hf.sh`

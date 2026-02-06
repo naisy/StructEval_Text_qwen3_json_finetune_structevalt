@@ -101,6 +101,10 @@ This repo includes a converter that turns these datasets into the local training
 - SFT JSONL: each line has `{ "query": "...", "output": "..." }`
 - GRPO tasks JSON (StructEval-T style): JSON array with `raw_output_metric` extracted from `ATTRIBUTES:` blocks.
 
+Additionally, when converting HF datasets, this repo applies a deterministic *exclusion* policy
+(syntax/format/extra-text + obvious semantic FAIL for conversion tasks) to drop unusable samples.
+See: `src/data/hf_dataset_cleaning.py` and `docs/spec/items/02_training.md`.
+
 ### SFT (Stage A) from HF datasets
 
 ```bash
