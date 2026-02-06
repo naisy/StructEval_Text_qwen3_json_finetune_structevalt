@@ -292,14 +292,21 @@ def load_hf(dataset_name: str, split: str) -> Iterable[Dict[str, Any]]:
 
 
 def _is_valid_strict_structured_output(text: str, output_type: str) -> bool:
-    """Return True iff `text` is *strictly* valid and contains no extra wrapper.
+    """Return True iff the structured payload can be parsed.
 
-    We use the same strict parsers as StructEval-T / GRPO rewards.
+    IMPORTANT:
+    - For *training data filtering*, we only want to drop examples that are
+      clearly unusable (would become FAILED), i.e. the payload itself is
+      syntactically invalid.
+    - We must NOT drop merely because the raw answer contains extra text
+      (preambles, "Output:", etc.). Those cases are often UNKNOWN/benign and
+      should remain in the SFT pool.
+
+    Therefore we parse the extracted payload and intentionally ignore whether
+    there is text outside that payload.
     """
     t = _normalize_output_type(output_type) or "JSON"
-    payload, has_extraneous = V.extract_payload_and_extraneous(text, t)
-    if has_extraneous:
-        return False
+    payload, _has_extraneous = V.extract_payload_and_extraneous(text, t)
     if t == "JSON":
         ok, _obj, _err = V.parse_json(payload)
         return bool(ok)

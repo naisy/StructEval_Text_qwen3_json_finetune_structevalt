@@ -406,7 +406,21 @@ def decide_keep_example(
     raw_answer_text: str | None,
     relax_xml_f1: float = 0.97,
 ) -> CleaningDecision:
-    """Return keep/drop decision following the notebook policy."""
+    """Return keep/drop decision following the *final* dataset policy.
+
+    IMPORTANT:
+    - We must only drop examples that are clearly unusable (would become FAILED).
+    - Anything that is ambiguous (UNKNOWN) should be kept for training.
+
+    Concretely, we drop only when:
+    - the extracted structured output does not lint/parse (strict)
+    - the prompt-inferred target format contradicts the annotated output_type
+    - for conversion-like tasks, the input/output semantic check is a clear FAIL
+
+    We do *not* drop merely because the original answer contains extra
+    explanation text or markers (e.g., "Output:"). Those often correspond to
+    UNKNOWN/benign cases and should be retained.
+    """
 
     out_t = norm_output_type(output_type)
 
@@ -426,6 +440,7 @@ def decide_keep_example(
         lint_ok = bool(V.parse_json(extracted_output)[0])
 
     if not lint_ok:
+        # Clearly unusable: structured payload itself is invalid.
         return CleaningDecision(False, "lint_fail")
 
     # 2) format mismatch
@@ -433,16 +448,9 @@ def decide_keep_example(
     if tgt is not None and tgt.upper() != out_t:
         return CleaningDecision(False, "format_mismatch")
 
-    # 3) extra text (prefer raw assistant message if provided)
-    has_extra = False
-    if raw_answer_text:
-        _payload, extr = V.extract_payload_and_extraneous(raw_answer_text, out_t)
-        has_extra = bool(extr)
-    else:
-        _payload, extr = V.extract_payload_and_extraneous(extracted_output, out_t)
-        has_extra = bool(extr)
-    if has_extra:
-        return CleaningDecision(False, "has_extra_text")
+    # NOTE:
+    # We intentionally do NOT drop "has extra text" cases.
+    # They are not necessarily FAILED; many are UNKNOWN/benign and should remain.
 
     # base_ok satisfied here
     kind, _src_u, tgt_u, has_payload = classify_task_text(prompt)
