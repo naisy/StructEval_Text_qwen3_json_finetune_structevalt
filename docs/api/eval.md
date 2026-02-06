@@ -15,6 +15,15 @@ For each item, we attach:
 - `raw_output_score` (float): mean of `raw_output_eval`
 - `final_eval_score` (float): `0.2 * render_score + 0.8 * key_validation_score` 
 
+Additionally, we attach deterministic format diagnostics (shared with GRPO reward code):
+
+- `parse` (float): 1 if strict parsing succeeds, else 0
+- `parse_best_effort` (float): 1 if best-effort parsing succeeds (mainly JSON), else 0
+- `only` (float): 1 if the output is *only* the target format (no wrapper text), else 0
+- `extraneous` (float): 1 if wrapper/extraneous text is detected around the extracted payload, else 0
+- `match` (float): 1 if parsed output matches `reference_output` exactly, else 0 (only when `reference_output` exists)
+- `match_soft` (float): 0..1 string similarity on canonicalized structured output (only when `reference_output` exists)
+
 This mirrors StructEval‑T's text-only scoring scheme. 
 
 ## Optional JSON Schema checks

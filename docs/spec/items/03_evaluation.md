@@ -23,6 +23,11 @@ SFT/GRPO の学習完了直後に自動で評価を走らせる場合は、
 - `outputs/eval/structeval_t_eval.json`: サンプルごとの結果
 - `outputs/eval/eval_report.json`: 集計レポート
 
+`structeval_t_eval.json` の各サンプルには、StructEval‑T のスコアに加えて
+GRPO の reward と同じ決定的ロジックで計算した診断値（`parse/only/extraneous` など）も含める。
+これにより、YAML/TOML/XML/CSV で「構文は通るが余計な説明文が混ざる」といった失敗を
+評価段階で定量化できる。
+
 ## 重要パラメータ
 
 - `configs/eval.yaml` の `generation.max_new_tokens`
