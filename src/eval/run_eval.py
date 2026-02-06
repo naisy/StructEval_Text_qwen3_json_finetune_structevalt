@@ -240,11 +240,19 @@ def run_eval(config_path: str, override_model_path: str | None = None, *, limit:
 
     if fmt in ("structeval", "structeval_json", "structeval_t"):
         tasks = _load_structeval_tasks(valid_path)
-        prompts = [build_prompt(t, dcfg) for t in tasks]
     else:
         valid_items = load_jsonl(valid_path)
         tasks = valid_items
-        prompts = [build_prompt(ex, dcfg) for ex in valid_items]
+
+    # Load tokenizer early because prompt construction may rely on
+    # tokenizer.apply_chat_template (default in this repo).
+    model_name = override_model_path or cfg["model"]["base_model"]
+    info(f"Loading model: {model_name}")
+
+    # Load tokenizer with a safe compatibility shim for the known Mistral regex issue.
+    tok = load_tokenizer(model_name, trust_remote_code=cfg["model"].get("trust_remote_code", True))
+
+    prompts = [build_prompt(t, dcfg, tokenizer=tok) for t in tasks]
 
     # Apply evaluation sampling.
     # Priority:
@@ -298,12 +306,6 @@ def run_eval(config_path: str, override_model_path: str | None = None, *, limit:
             prompts = prompts[: int(limit)]
 
         info(f"Eval items: {len(tasks)} (limit={limit}, seed={seed})")
-
-    model_name = override_model_path or cfg["model"]["base_model"]
-    info(f"Loading model: {model_name}")
-
-    # Load tokenizer with a safe compatibility shim for the known Mistral regex issue.
-    tok = load_tokenizer(model_name, trust_remote_code=cfg["model"].get("trust_remote_code", True))
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name,

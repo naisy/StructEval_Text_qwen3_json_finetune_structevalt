@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from src.utils.logging import warn
 from src.data.format_rules import FORMAT_RULES
@@ -43,31 +43,46 @@ def load_dataset_any(path: str | Path, fmt: str) -> list[dict[str, Any]]:
     raise ValueError(f"Unknown dataset format: {fmt}")
 
 
-def build_prompt(example: dict[str, Any], cfg: dict) -> str:
-    """Build an instruction prompt.
+def build_messages(example: dict[str, Any], cfg: dict) -> list[dict[str, str]]:
+    """Build chat messages for one example.
 
     - For StructEval-style data, use `example['query']` as-is (already composed).
     - Otherwise use {instruction, requirements} style fields.
 
-    This function also injects lightweight, format-specific constraints into the
-    system message based on `example['output_type']` (JSON/YAML/TOML/XML/CSV).
-    This is important for evaluation and GRPO where rewards depend on
-    deterministic parsers.
+    IMPORTANT (contest alignment)
+    -----------------------------
+    The contest inference code constructs prompts as:
+
+        messages = [{"role": "user", "content": query}]
+        tokenizer.apply_chat_template(messages, add_generation_prompt=True)
+
+    If you train with a different message structure (extra system rules, extra
+    prefixes, different sentinels), the model can look great in offline eval
+    but fail badly in the contest setting.
+
+    Therefore this function supports two prompting modes:
+      - prompting.mode == "contest": user-only (query as-is), NO system message
+      - default: include system message + optional format rules
     """
-    sys_msg = cfg["prompting"]["system"].strip()
 
-    # Inject format-specific rules (JSON/YAML/TOML/XML/CSV) to prevent
-    # cross-format leakage (e.g., JSON-style ':' in TOML, trailing commas).
-    # This is important for BOTH eval and GRPO: deterministic parsers drive
-    # the syntax score / reward.
-    ot = str(example.get("output_type") or "").strip().upper()
-    extra = FORMAT_RULES.get(ot)
-    if extra:
-        sys_msg = f"{sys_msg}\n\n{extra}".strip()
+    prompting = cfg.get("prompting", {}) or {}
+    mode = str(prompting.get("mode") or "default").strip().lower()
 
-    user_prefix = cfg["prompting"].get("user_prefix", "")
-    schema_prefix = cfg["prompting"].get("schema_prefix", "")
-    out_prefix = cfg["prompting"].get("output_prefix", "")
+    sys_msg = str(prompting.get("system") or "").strip()
+
+    if mode != "contest":
+        # Inject format-specific rules (JSON/YAML/TOML/XML/CSV) to prevent
+        # cross-format leakage (e.g., JSON-style ':' in TOML, trailing commas).
+        # This is important for BOTH eval and GRPO: deterministic parsers drive
+        # the syntax score / reward.
+        ot = str(example.get("output_type") or "").strip().upper()
+        extra = FORMAT_RULES.get(ot)
+        if extra:
+            sys_msg = f"{sys_msg}\n\n{extra}".strip()
+
+    user_prefix = str(prompting.get("user_prefix", ""))
+    schema_prefix = str(prompting.get("schema_prefix", ""))
+    out_prefix = str(prompting.get("output_prefix", ""))
 
     if isinstance(example.get("query"), str):
         instruction = example["query"].strip()
@@ -83,14 +98,11 @@ def build_prompt(example: dict[str, Any], cfg: dict) -> str:
         else:
             req_text = (req or "").strip()
 
-    # NOTE (Qwen3 chat template)
-    # Qwen3 Instruct models expect the <|im_start|>role ... <|im_end|> framing.
-    # Using the wrong sentinel tokens (e.g. <|system|>) makes the model treat the
-    # prompt as plain text, which often leads to runaway generations that never
-    # terminate early and collapses GRPO reward diversity.
-    parts: list[str] = []
-    parts.append(f"<|im_start|>system\n{sys_msg}<|im_end|>")
+    # Contest mode: user-only, query as-is.
+    if mode == "contest":
+        return [{"role": "user", "content": instruction}]
 
+    # Default mode: system + (optional) requirement blocks + output prefix.
     if req_text and schema_prefix:
         user_block = f"{user_prefix}{instruction}\n\n{schema_prefix}{req_text}\n\n{out_prefix}"
     elif req_text:
@@ -98,8 +110,34 @@ def build_prompt(example: dict[str, Any], cfg: dict) -> str:
     else:
         user_block = f"{user_prefix}{instruction}\n\n{out_prefix}"
 
-    parts.append(f"<|im_start|>user\n{user_block.strip()}<|im_end|>")
+    msgs: list[dict[str, str]] = []
+    if sys_msg:
+        msgs.append({"role": "system", "content": sys_msg})
+    msgs.append({"role": "user", "content": user_block.strip()})
+    return msgs
 
-    # Generation starts here.
+
+def build_prompt(example: dict[str, Any], cfg: dict, *, tokenizer: Optional[Any] = None) -> str:
+    """Build the final prompt string.
+
+    If prompting.use_chat_template is true, we use tokenizer.apply_chat_template
+    so training/eval prompts match contest inference.
+    Otherwise we fall back to the legacy manual sentinel framing.
+    """
+    prompting = cfg.get("prompting", {}) or {}
+    use_chat = bool(prompting.get("use_chat_template", True))
+    msgs = build_messages(example, cfg)
+
+    if use_chat:
+        if tokenizer is None:
+            raise ValueError("build_prompt requires tokenizer when use_chat_template=true")
+        return tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+
+    # Legacy manual framing (kept for backward compatibility / debugging).
+    parts: list[str] = []
+    for m in msgs:
+        role = (m.get("role") or "").strip()
+        content = (m.get("content") or "")
+        parts.append(f"<|im_start|>{role}\n{content}<|im_end|>")
     parts.append("<|im_start|>assistant\n")
     return "\n".join(parts)

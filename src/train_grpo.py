@@ -62,22 +62,6 @@ def run_grpo(
         dcfg["dataset"]["valid_path"] = str(valid_path_override)
     train_items = load_dataset_any(dcfg["dataset"]["train_path"], dcfg["dataset"]["format"])
 
-    prompts = [build_prompt(ex, dcfg) for ex in train_items]
-    ds_train = Dataset.from_dict(
-        {
-            "prompt": prompts,
-            "task_id": [ex.get("task_id") for ex in train_items],
-            "query": [ex.get("query") for ex in train_items],
-            "raw_output_metric": [ex.get("raw_output_metric") for ex in train_items],
-            "output_type": [ex.get("output_type") for ex in train_items],
-            # Gold output (output-only). Used by reward_fn via kwargs['reference_output'].
-            # This is critical for HF datasets where raw_output_metric is often empty
-            # (no StructEval-T ATTRIBUTES blocks in the prompt), otherwise rewards
-            # collapse to near-constant parse/only penalties and learning stalls.
-            "reference_output": [ex.get("reference_output") for ex in train_items],
-        }
-    )
-
     # Load schema if enabled
     schema_validator = None
     allowed_top = None
@@ -106,6 +90,19 @@ def run_grpo(
             )
             model_name = fallback
     tok = load_tokenizer(model_name, trust_remote_code=cfg["model"].get("trust_remote_code", True))
+
+    # Build prompts AFTER tokenizer load so we can use tokenizer.apply_chat_template.
+    prompts = [build_prompt(ex, dcfg, tokenizer=tok) for ex in train_items]
+    ds_train = Dataset.from_dict(
+        {
+            "prompt": prompts,
+            "task_id": [ex.get("task_id") for ex in train_items],
+            "query": [ex.get("query") for ex in train_items],
+            "raw_output_metric": [ex.get("raw_output_metric") for ex in train_items],
+            "output_type": [ex.get("output_type") for ex in train_items],
+            "reference_output": [ex.get("reference_output") for ex in train_items],
+        }
+    )
     dtype = torch.bfloat16 if cfg["training"].get("bf16", False) else torch.float16
     model = load_model(model_name, dtype=dtype, trust_remote_code=cfg["model"].get("trust_remote_code", True))
 

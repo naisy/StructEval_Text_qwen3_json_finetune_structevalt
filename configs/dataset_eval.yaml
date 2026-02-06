@@ -11,6 +11,8 @@ dataset:
   valid_path: data/structeval_text_all.json
 
 prompting:
+  # Align eval prompts with contest inference: user-only query, no system.
+  mode: contest
   # The StructEval tasks already contain the full prompt in `query`.
   # This system message just enforces output-only behavior.
   system: |

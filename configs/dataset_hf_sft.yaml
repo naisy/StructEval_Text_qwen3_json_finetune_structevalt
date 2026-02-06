@@ -11,6 +11,10 @@ eval_dataset:
   fallback_path: data/valid_structeval_t.json
 
 prompting:
+  # Contest inference uses ONLY {role:user, content: query} with
+  # tokenizer.apply_chat_template(..., add_generation_prompt=True).
+  # To avoid train/eval prompt mismatch, we train in the same mode.
+  mode: contest
   system: |
     You are a careful data-to-structure conversion engine.
     Output MUST be ONLY the requested structured format (e.g. JSON/YAML/TOML/XML/CSV).

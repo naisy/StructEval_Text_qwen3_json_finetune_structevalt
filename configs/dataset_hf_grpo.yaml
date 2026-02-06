@@ -12,6 +12,7 @@ eval_dataset:
   fallback_path: data/valid_structeval_t.json
 
 prompting:
+  mode: contest
   system: |
     You are a careful data-to-structure conversion engine.
     Output MUST be ONLY the requested structured format (e.g. JSON/YAML/TOML/XML/CSV).
