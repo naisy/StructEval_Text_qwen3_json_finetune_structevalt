@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from src.data import validators as V
+from src.data.hf_dataset_cleaning import decide_keep_example
 from src.utils.logging import info, warn
 
 
@@ -348,6 +349,7 @@ def main() -> None:
 
     filtered_invalid = 0
     filtered_invalid_by_type: dict[str, int] = {}
+    filtered_invalid_by_reason: dict[str, int] = {}
 
     task_id = 1
     for name in args.datasets:
@@ -372,9 +374,24 @@ def main() -> None:
 
             if args.filter_invalid and out_type:
                 t = _normalize_output_type(out_type)
+                # Stage 1: strict parsing (legacy behavior)
                 if not _is_valid_strict_structured_output(out_text, t):
                     filtered_invalid += 1
                     filtered_invalid_by_type[t] = filtered_invalid_by_type.get(t, 0) + 1
+                    filtered_invalid_by_reason["strict_parse_fail"] = filtered_invalid_by_reason.get("strict_parse_fail", 0) + 1
+                    continue
+
+                # Stage 2: deterministic cleaning policy (based on structeval_dataset_check.ipynb)
+                dec = decide_keep_example(
+                    prompt=user_msg.strip(),
+                    output_type=t,
+                    extracted_output=out_text,
+                    raw_answer_text=asst_msg,
+                )
+                if not dec.keep:
+                    filtered_invalid += 1
+                    filtered_invalid_by_type[t] = filtered_invalid_by_type.get(t, 0) + 1
+                    filtered_invalid_by_reason[dec.reason] = filtered_invalid_by_reason.get(dec.reason, 0) + 1
                     continue
 
             row = {
@@ -416,6 +433,10 @@ def main() -> None:
         info(
             "[import_hf_structured_sft] Filtered invalid (strict-parse) examples: "
             f"{filtered_invalid} by_type={filtered_invalid_by_type}"
+        )
+        info(
+            "[import_hf_structured_sft] Filter reasons (top): "
+            f"{dict(sorted(filtered_invalid_by_reason.items(), key=lambda kv: kv[1], reverse=True)[:20])}"
         )
     with sft_out.open("w", encoding="utf-8") as f:
         for r in sft_rows:

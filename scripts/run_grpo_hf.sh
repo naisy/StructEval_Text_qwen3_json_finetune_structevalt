@@ -11,6 +11,7 @@ PYTHONPATH="$(pwd)" python -m src.data.import_hf_structured_sft \
   --split "${SPLIT}" \
   --out-grpo-tasks data/hf_grpo_tasks.json \
   --write-grpo-tasks \
+  --filter-invalid \
   --shuffle-seed 42
 
 PYTHONPATH="$(pwd)" python -m src.data.prepare_structeval_split \
