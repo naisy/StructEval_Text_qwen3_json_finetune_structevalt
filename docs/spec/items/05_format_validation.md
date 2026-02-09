@@ -9,6 +9,18 @@
 - `src/data/validators.py`
   - JSON: `json.loads`
   - YAML: `yaml.safe_load`
+## 重要: markdown code fence は不合格
+
+本プロジェクトでは、出力に `\`\`\`json ... \`\`\`` のような **markdown code fence** が含まれる場合は、
+「余計な wrapper を含む」とみなし **不合格**とする。
+
+- 評価（StructEval_T）: fenced 出力は `syntax_score=0`
+- GRPO: fenced 出力は `only=0` かつ `extraneous=1` となり reward で不利
+
+実装: `src/data/validators.py`
+  - `contains_code_fence()`
+  - 各 `parse_*()` は strict parse 時に fenced を検出したら失敗扱い
+
   - TOML: `tomllib.loads`
   - XML: `xml.etree.ElementTree.fromstring`
   - CSV: `csv.reader`

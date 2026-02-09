@@ -23,6 +23,18 @@ from jsonschema import Draft202012Validator
 _CODE_FENCE_RE = re.compile(r"^\s*```[a-zA-Z0-9_\-]*\s*|\s*```\s*$", re.MULTILINE)
 
 
+def contains_code_fence(text: str) -> bool:
+    """Return True if the text contains Markdown triple-backtick fences.
+
+    Notes
+    -----
+    This repo's evaluation rule treats fenced outputs as *invalid* because
+    StructEval-T style tasks expect the model to emit the structured payload
+    only (no markdown wrappers).
+    """
+    return "```" in (text or "")
+
+
 def strip_code_fences(text: str) -> str:
     """Remove Markdown triple-backtick fences if present."""
     return re.sub(_CODE_FENCE_RE, "", text).strip()
@@ -77,7 +89,13 @@ def extract_payload_and_extraneous(text: str, output_type: str) -> tuple[str, bo
     inside, outside = extract_first_fenced_block(raw)
     if inside is not None:
         payload = strip_code_fences(inside).strip()
-        return payload, outside.strip() != ""
+        # Even if the fenced block is the only content, the fences themselves
+        # are wrapper text outside the payload. Treat them as extraneous so
+        # GRPO reward can penalize markdown-wrapped outputs.
+        has_extraneous = True
+        if outside.strip() != "":
+            has_extraneous = True
+        return payload, has_extraneous
 
     # No fenced block: apply type-specific heuristics.
     s = strip_code_fences(raw)
@@ -168,6 +186,8 @@ def is_fenced_block_only(text: str) -> bool:
 
 def parse_json(text: str) -> Tuple[bool, Any | None, str | None]:
     """Parse JSON from raw model output (expects JSON-only)."""
+    if contains_code_fence(text):
+        return False, None, "markdown_fence"
     t = strip_code_fences(text).strip()
     try:
         obj = json.loads(t)
@@ -240,12 +260,16 @@ def parse_json_best_effort(text: str) -> Tuple[bool, Any | None, str | None, str
 
 def is_json_only(text: str) -> bool:
     """Heuristic: succeeds if entire stripped output parses as JSON."""
+    if contains_code_fence(text):
+        return False
     ok, _, _ = parse_json(text)
     return ok
 
 
 def parse_yaml(text: str) -> Tuple[bool, Any | None, str | None]:
     """Parse YAML from raw model output (expects YAML-only)."""
+    if contains_code_fence(text):
+        return False, None, "markdown_fence"
     t = strip_code_fences(text).strip()
     try:
         obj = yaml.safe_load(t)
@@ -303,6 +327,8 @@ def is_yaml_only(text: str) -> bool:
     Otherwise we fall back to parsing the full (stripped) output.
     """
     def _is_structured_yaml(t: str) -> bool:
+        if contains_code_fence(t):
+            return False
         ok, obj, _ = parse_yaml(t)
         if not ok:
             return False
@@ -312,14 +338,15 @@ def is_yaml_only(text: str) -> bool:
 
     inside, outside = extract_first_fenced_block(text)
     if inside is not None:
-        if outside.strip() != "":
-            return False
-        return _is_structured_yaml(inside)
+        # fenced outputs are considered invalid (no markdown wrappers allowed)
+        return False
     return _is_structured_yaml(text)
 
 
 def parse_toml(text: str) -> Tuple[bool, Any | None, str | None]:
     """Parse TOML from raw model output (expects TOML-only)."""
+    if contains_code_fence(text):
+        return False, None, "markdown_fence"
     t = strip_code_fences(text).strip()
     try:
         obj = tomllib.loads(t)
@@ -369,10 +396,7 @@ def is_toml_only(text: str) -> bool:
     """
     inside, outside = extract_first_fenced_block(text)
     if inside is not None:
-        if outside.strip() != "":
-            return False
-        ok, _, _ = parse_toml(inside)
-        return ok
+        return False
     ok, _, _ = parse_toml(text)
     return ok
 
@@ -382,6 +406,8 @@ def parse_xml(text: str) -> Tuple[bool, Any | None, str | None]:
 
     Returns the root Element.
     """
+    if contains_code_fence(text):
+        return False, None, "markdown_fence"
     t = strip_code_fences(text).strip()
     try:
         root = ET.fromstring(t)
@@ -435,10 +461,7 @@ def is_xml_only(text: str) -> bool:
     """
     inside, outside = extract_first_fenced_block(text)
     if inside is not None:
-        if outside.strip() != "":
-            return False
-        ok, _, _ = parse_xml(inside)
-        return ok
+        return False
     ok, _, _ = parse_xml(text)
     return ok
 
@@ -448,6 +471,8 @@ def parse_csv(text: str) -> Tuple[bool, Any | None, str | None]:
 
     Returns a list of rows (each row is a list[str]).
     """
+    if contains_code_fence(text):
+        return False, None, "markdown_fence"
     t = strip_code_fences(text).strip()
     try:
         f = io.StringIO(t)
@@ -503,6 +528,8 @@ def is_csv_only(text: str) -> bool:
     Otherwise we fall back to parsing the full (stripped) output.
     """
     def _is_structured_csv(t: str) -> bool:
+        if contains_code_fence(t):
+            return False
         ok, rows, _ = parse_csv(t)
         if not ok or rows is None:
             return False
@@ -512,9 +539,7 @@ def is_csv_only(text: str) -> bool:
 
     inside, outside = extract_first_fenced_block(text)
     if inside is not None:
-        if outside.strip() != "":
-            return False
-        return _is_structured_csv(inside)
+        return False
     return _is_structured_csv(text)
 
 

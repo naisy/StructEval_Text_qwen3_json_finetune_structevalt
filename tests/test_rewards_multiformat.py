@@ -31,13 +31,15 @@ def test_reward_json():
 
 def test_reward_yaml_only_vs_extra_text():
     good = """a: 1\nb: 2\n"""
-    bad = """Here you go:\n```yaml\na: 1\n```\n"""
+    # markdown fences are considered invalid outputs for this project.
+    bad = """```yaml\na: 1\n```\n"""
     comps_g = compute_reward_components(good, output_type="YAML")
     assert comps_g["parse"] == 1.0
     assert comps_g["only"] == 1.0
 
     comps_b = compute_reward_components(bad, output_type="YAML")
-    # Parser can succeed after stripping fences, but 'only' should fail due to extra text.
+    # Reward code extracts the payload for parse scoring, but fenced wrappers
+    # must be penalized via `only=0` and `extraneous=1`.
     assert comps_b["parse"] == 1.0
     assert comps_b["only"] == 0.0
 

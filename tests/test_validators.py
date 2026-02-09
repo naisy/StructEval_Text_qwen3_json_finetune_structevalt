@@ -8,6 +8,8 @@ def test_parse_json_ok():
 
 def test_is_json_only():
     assert is_json_only('{"a": 1}')
+    # markdown fences are not allowed (even if the JSON inside is valid)
+    assert not is_json_only('```json\n{"a":1}\n```')
     assert not is_json_only('```json\n{"a":1}\n``` extra')
 
 

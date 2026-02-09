@@ -116,6 +116,24 @@ Qwen3 Instruct は `tokenizer.chat_template` が `<|im_start|>role ... <|im_end|
 - `data/train_hf_grpo_tasks.json` の数件を見て `reference_output` が入っているか
 - `python - <<'PY'\nimport json\nfrom itertools import islice\nfor p in ['data/train_hf_grpo_tasks.json','data/valid_hf_grpo_tasks.json']:\n    try:\n        d=json.load(open(p,'r',encoding='utf-8'))\n    except FileNotFoundError:\n        continue\n    print(p,'n=',len(d))\n    for ex in islice(d,3):\n        print(' output_type=',ex.get('output_type'),'ref_len=',len((ex.get('reference_output')or'')))\nPY`
 
+### 6c) GRPO 後に出力が fenced block（`\`\`\`...\`\`\``）に寄って評価が悪化する
+
+症状:
+- GRPO の後に、YAML/TOML/XML/CSV（場合によっては JSON も）が fenced block で出る比率が上がる
+
+原因:
+- 過去の実装では、YAML/TOML/XML/CSV の「形式のみ」判定が **fenced block を “only” として許容**していた。
+  - その結果、GRPO が fenced block を強化してしまい、コンテスト推論（wrapper 禁止）の評価で悪化する。
+
+対策（本リポジトリの現行実装）:
+- `src/data/validators.py` で fenced block を **常に不合格**として扱う。
+  - `parse_*()` の strict parse は fenced を検出したら失敗
+  - `is_*_only()` は fenced を含む場合は必ず False
+  - `extract_payload_and_extraneous()` は fenced がある場合 `extraneous=1` とする
+
+関連メモ:
+- 詳細の観察ログは `structeval_grpo_degradation_analysis.md` を参照
+
 ## 7) CSV→XML で snake_case が分解される（<some><thing> になる）
 
 原因候補:
