@@ -231,6 +231,18 @@ def run_grpo(
                 if metric_list:
                     res = eval_structeval_t(payload, metric_list, output_type=otype)
                     r = float(res.final_eval_score)
+                    # Extra YAML style shaping (indentation / block-style)
+                    # StructEval-T's syntax_score is based on parsing, but YAML parsing
+                    # is permissive and can accept "valid but non-canonical" outputs.
+                    if otype == "YAML":
+                        if not V.yaml_indent_is_canonical(payload, indent=2):
+                            r += float(cfg.get("reward", {}).get("p_yaml_indent_canonical_fail", 0.0))
+                        else:
+                            r += float(cfg.get("reward", {}).get("w_yaml_indent_canonical", 0.0))
+                        if V.yaml_uses_flow_style(payload):
+                            r += float(cfg.get("reward", {}).get("p_yaml_block_style_fail", 0.0))
+                        else:
+                            r += float(cfg.get("reward", {}).get("w_yaml_block_style", 0.0))
                     if has_extraneous:
                         # format-specific override supported: p_extraneous_xml, etc.
                         pen = cfg.get("reward", {}).get(f"p_extraneous_{otype.lower()}")

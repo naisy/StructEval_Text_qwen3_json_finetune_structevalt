@@ -51,6 +51,105 @@ _YAML_START_RE = re.compile(
 _TOML_START_RE = re.compile(r"^\s*(\[.*\]|[A-Za-z0-9_\-\.]+\s*=)")
 
 
+# ---------------------------------------------------------------------------
+# YAML style / indentation checks (project-specific strictness)
+# ---------------------------------------------------------------------------
+
+
+_YAML_COMMENT_RE = re.compile(r"^\s*#")
+
+
+def yaml_uses_flow_style(text: str) -> bool:
+    """Return True if YAML appears to use flow-style collections.
+
+    Motivation
+    ----------
+    YAML allows JSON-like flow style (e.g., `{a: 1}`, `[1, 2]`). For this
+    project we want models to learn the *block style* consistently to avoid
+    drifting into JSON-ish formatting.
+
+    This is a conservative heuristic and may flag some edge cases.
+    """
+    t = (text or "").lstrip()
+    if not t:
+        return False
+    # Leading flow collection is a strong signal.
+    if t[0] in "{[":
+        return True
+    # Inline flow collections are also treated as flow-style usage.
+    # We intentionally do not attempt to parse YAML tokens here; the rule is
+    # meant as a simple, deterministic shaping signal for RL.
+    return ("{" in t) or ("[" in t) or ("}" in t) or ("]" in t)
+
+
+def yaml_indent_is_canonical(text: str, *, indent: int = 2) -> bool:
+    """Return True if YAML indentation follows a strict 2-space-per-level style.
+
+    What we enforce (heuristic, deterministic):
+    - No tabs for indentation
+    - Indent width must be a multiple of `indent`
+    - When a line opens a block (ends with ':'), the next non-empty/non-comment
+      line that is more-indented must be exactly +`indent` deeper (not +4, +6, ...)
+    - For sequence items (`-`), nested content must also increase by exactly
+      +`indent` relative to the dash indentation.
+
+    This intentionally goes beyond YAML syntax validity and is used to
+    discourage "JSON-ish" YAML where indentation drifts.
+    """
+    if not text:
+        return False
+
+    lines = (text or "").splitlines()
+
+    def _is_ignorable(ln: str) -> bool:
+        s = ln.strip()
+        return (s == "") or bool(_YAML_COMMENT_RE.match(ln))
+
+    # Quick tab check
+    for ln in lines:
+        if ln.startswith("\t") or "\t" in (re.match(r"^[ \t]*", ln).group(0) if ln else ""):
+            return False
+
+    # Indent multiple check
+    indents: list[int] = []
+    for ln in lines:
+        if _is_ignorable(ln):
+            continue
+        m = re.match(r"^[ ]*", ln)
+        n = len(m.group(0)) if m else 0
+        if n % indent != 0:
+            return False
+        indents.append(n)
+
+    if not indents:
+        return False
+
+    # Block-opening strictness: when the next significant line is deeper, it must be +indent.
+    for i, ln in enumerate(lines):
+        if _is_ignorable(ln):
+            continue
+        m = re.match(r"^[ ]*", ln)
+        cur = len(m.group(0)) if m else 0
+        stripped = ln.strip()
+        is_seq = stripped.startswith("-")
+        opens_block = stripped.endswith(":")
+        if not (is_seq or opens_block):
+            continue
+
+        # Find next significant line
+        j = i + 1
+        while j < len(lines) and _is_ignorable(lines[j]):
+            j += 1
+        if j >= len(lines):
+            continue
+        m2 = re.match(r"^[ ]*", lines[j])
+        nxt = len(m2.group(0)) if m2 else 0
+        if nxt > cur and (nxt - cur) != indent:
+            return False
+
+    return True
+
+
 def _first_matching_line_start(text: str, pattern: re.Pattern[str]) -> int | None:
     """Return character index of the first line that matches pattern, else None."""
     if not text:

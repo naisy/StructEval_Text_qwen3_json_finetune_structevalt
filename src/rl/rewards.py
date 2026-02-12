@@ -82,6 +82,22 @@ def compute_reward_components(
     out["only"] = 1.0 if is_only(completion) else 0.0
     out["extraneous"] = 1.0 if has_extraneous else 0.0
 
+    # --------------------------------------------------------------
+    # Format-specific style signals (beyond syntax)
+    #
+    # Motivation:
+    # - YAML is syntactically permissive; structurally correct outputs can still
+    #   violate the project's canonical indentation/style rules.
+    # - These are used as *additional* shaping signals during GRPO. They should
+    #   not be relied on as the sole correctness criterion.
+    # --------------------------------------------------------------
+    if t == "YAML":
+        out["yaml_indent_canonical"] = 1.0 if V.yaml_indent_is_canonical(payload, indent=2) else 0.0
+        out["yaml_block_style"] = 1.0 if (not V.yaml_uses_flow_style(payload)) else 0.0
+    else:
+        out["yaml_indent_canonical"] = 0.0
+        out["yaml_block_style"] = 0.0
+
     # legacy/type-specific mirrors (useful for logging/config back-compat)
     tl = t.lower()
     out[f"parse_{tl}"] = out["parse"]
@@ -227,6 +243,23 @@ def combine_reward(components: dict[str, float], cfg: dict[str, Any], output_typ
     # If format-only failed, apply penalty (format-specific override supported)
     if components.get("only", 0.0) < 1.0:
         r += _cfg_get_typed_penalty(w, t, "p_only", -1.0)
+
+    # --------------------------------------------------------------
+    # YAML style penalties (indentation / block-style)
+    #
+    # YAML can parse successfully even when it violates the repo's
+    # canonical formatting rules. This provides an extra shaping signal
+    # so GRPO does not plateau with "valid but ugly" YAML.
+    # --------------------------------------------------------------
+    if t == "YAML":
+        # positive bonuses
+        r += float(w.get("w_yaml_indent_canonical", 0.0)) * components.get("yaml_indent_canonical", 0.0)
+        r += float(w.get("w_yaml_block_style", 0.0)) * components.get("yaml_block_style", 0.0)
+        # penalties when violated
+        if components.get("yaml_indent_canonical", 0.0) < 1.0:
+            r += float(w.get("p_yaml_indent_canonical_fail", 0.0))
+        if components.get("yaml_block_style", 0.0) < 1.0:
+            r += float(w.get("p_yaml_block_style_fail", 0.0))
 
     # Penalize any wrapper text outside the structured payload (format-specific override supported).
     # This targets outputs like "Sure! ... ```xml" ... and pushes the model toward emitting
