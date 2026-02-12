@@ -84,6 +84,19 @@ reward:
   # You can override per format with p_extraneous_json / _yaml / _toml / _xml / _csv.
   p_extraneous: -5.0
 
+  # --------------------------------------------------------------
+  # YAML style shaping (beyond mere parse success)
+  #
+  # YAML can be syntactically valid while still violating our project's
+  # canonical formatting rules (2-space indentation, block-style instead
+  # of JSON-ish flow-style). These extra terms give GRPO a learning signal
+  # to fix issues like "indent 2 spaces too much".
+  # --------------------------------------------------------------
+  w_yaml_indent_canonical: 0.5
+  p_yaml_indent_canonical_fail: -2.0
+  w_yaml_block_style: 0.2
+  p_yaml_block_style_fail: -1.0
+
   # Legacy keys (kept for backward compatibility with older logs/configs)
   w_json_only: 1.0
   p_json_only_fail: -2.0

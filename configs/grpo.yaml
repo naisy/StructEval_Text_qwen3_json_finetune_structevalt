@@ -80,6 +80,17 @@ reward:
   # You can override per format with p_extraneous_json / _yaml / _toml / _xml / _csv.
   p_extraneous: -0.5
 
+  # --------------------------------------------------------------
+  # YAML style shaping (indentation / block-style)
+  #
+  # YAML can parse successfully even when indentation is non-canonical.
+  # These provide an additional shaping signal during GRPO.
+  # --------------------------------------------------------------
+  w_yaml_indent_canonical: 0.0
+  p_yaml_indent_canonical_fail: 0.0
+  w_yaml_block_style: 0.0
+  p_yaml_block_style_fail: 0.0
+
   # Legacy keys (kept for backward compatibility with older logs/configs)
   w_json_only: 0.5
   p_json_only_fail: -1.0
