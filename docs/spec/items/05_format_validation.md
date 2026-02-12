@@ -37,6 +37,31 @@ YAML と CSV はパーサが非常に寛容です。
 - CSV: どこかの行に 2列以上が存在すること（1列のみは不合格）
   - さらにヘッダが 2列以上ある場合は、以降の行の列数がヘッダ幅と一致すること（空行は許容）
 
+## YAML のスタイル（indent / flow-style）
+
+YAML は parse できても、次のような「見た目の崩れ」が残ることがあります。
+
+- **インデントが +2 ずれる**（過剰インデント）
+- **JSON風の flow-style**（`{...}` / `[...]`）が混入する
+
+これらは YAML の文法上は許容される場合があり、単純な `yaml.safe_load` だけでは検出できません。
+
+本プロジェクトでは GRPO の報酬として、次の **決定的 lint** を追加で使用します。
+
+- 2スペース単位のインデント（tab 禁止）
+- ブロック開始行（末尾 `:` / `- ...:`）の次のネストは **ちょうど +2**
+- flow-style（`{` / `[` を使ったコレクション）を避ける
+
+実装: `src/data/validators.py`
+
+- `yaml_indent_is_canonical()`
+- `yaml_uses_flow_style()`
+
+報酬側: `src/rl/rewards.py` / `src/train_grpo.py`
+
+- `w_yaml_indent_canonical`, `p_yaml_indent_canonical_fail`
+- `w_yaml_block_style`, `p_yaml_block_style_fail`
+
 ## プロンプト側の形式ルール
 
 決定的パーサで採点する以上、モデル出力が構文的に壊れていると `syntax_score=0` になり、
