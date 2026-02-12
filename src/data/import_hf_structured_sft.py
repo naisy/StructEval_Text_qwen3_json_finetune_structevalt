@@ -237,6 +237,33 @@ def _extract_messages(ex: Dict[str, Any]) -> Tuple[Optional[str], Optional[str],
     return sys_msg, user_msg, asst_msg
 
 
+def build_query_text(dataset_name: str, sys_msg: str | None, user_msg: str) -> str:
+    """Build the `query` string used by this project from HF chat-style messages.
+
+    Design goal:
+    - Our training/eval pipeline uses `prompting.mode: contest`, i.e. **user-only**
+      messages: `messages=[{"role": "user", "content": query}]`.
+    - Therefore, when the HF source dataset carries important instructions in a
+      `system` message, we must *project* that information into the single `query`
+      string, otherwise the instruction is silently lost.
+
+    Policy:
+    - For u-10bei/* datasets, concatenate `system` + blank line + `user`.
+      (Those datasets commonly store format constraints in the system prompt.)
+    - For other datasets, keep the legacy behavior (user-only) to avoid changing
+      semantics unexpectedly.
+
+    NOTE:
+    - We do **not** rewrite or paraphrase the original messages. We only
+      concatenate already-provided strings.
+    """
+    u = (user_msg or "").strip()
+    s = (sys_msg or "").strip()
+    if dataset_name.startswith("u-10bei/") and s:
+        return f"{s}\n\n{u}".strip()
+    return u
+
+
 _ATTR_BLOCK_RE = re.compile(r"\bATTRIBUTES\s*:\s*(.*)", re.IGNORECASE)
 
 
@@ -373,6 +400,8 @@ def main() -> None:
             sys_msg, user_msg, asst_msg = _extract_messages(ex)
             if not user_msg:
                 continue
+
+            query_text = build_query_text(name, sys_msg, user_msg)
             out_type = _infer_output_type(ex)
 
             out_text = _extract_reference_output(ex, asst_msg, out_type)
@@ -402,7 +431,7 @@ def main() -> None:
                     continue
 
             row = {
-                "query": user_msg.strip(),
+                "query": query_text,
                 "output": out_text,
             }
             if out_type:
@@ -420,7 +449,7 @@ def main() -> None:
                 grpo_tasks.append(
                     {
                         "task_id": f"hf_{task_id:08d}",
-                        "query": user_msg.strip(),
+                        "query": query_text,
                         "feature_requirements": "",
                         "task_name": name,
                         "input_type": "Text",

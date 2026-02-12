@@ -64,6 +64,9 @@ Note (important):
   error in the structured text; it is the JSON representation.
 - Always inspect/consume JSONL via `json.loads(...)` (or this repo's
   `load_jsonl`) so the decoded `output` contains the intended text.
+- HF 変換由来の JSONL では、u-10bei 系データセットの `messages` のうち `system` と `user` を
+  `query` に結合して保持する（`query = system + "\n\n" + user`）。
+  これは `prompting.mode: contest`（user-only）でも system 側の重要指示を欠落させないため。
 
 
 ## StructEval JSON eval format
