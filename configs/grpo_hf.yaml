@@ -4,12 +4,12 @@ model:
   # from the latest SFT checkpoint automatically.
   base_model: AUTO_SFT
   trust_remote_code: true
-  use_flash_attention_2: false
+  use_flash_attention_2: true
 
 lora:
   enabled: true
-  r: 32
-  alpha: 64
+  r: 8
+  alpha: 16
   dropout: 0.05
   target_modules: auto
 
@@ -21,11 +21,11 @@ training:
 
   # 0 = run to completion (default). Set to a positive integer to stop after that many
   # optimizer steps. Useful for quick GRPO sanity checks.
-  max_steps: 0
+  max_steps: 100
 
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 8
-  learning_rate: 1.0e-5
+  learning_rate: 1.0e-4
   warmup_ratio: 0.03
   logging_steps: 10
   save_steps: 50
@@ -47,15 +47,15 @@ reward:
   # weights for reward components (format-specific)
   # Reward uses deterministic parsers per output_type: JSON/YAML/TOML/XML/CSV.
   w_parse_json: 1.0
-  w_only_json: 0.5
+  w_only_json: 1.0
   w_parse_yaml: 1.0
-  w_only_yaml: 0.5
+  w_only_yaml: 1.0
   w_parse_toml: 1.0
-  w_only_toml: 0.5
+  w_only_toml: 1.0
   w_parse_xml: 1.0
-  w_only_xml: 0.5
+  w_only_xml: 1.0
   w_parse_csv: 1.0
-  w_only_csv: 0.5
+  w_only_csv: 1.0
 
   # Gold match bonus (HF datasets without ATTRIBUTES benefit from this).
   # You can also override per format, e.g. w_match_toml.
@@ -77,21 +77,21 @@ reward:
   # Mild penalty when only best-effort parsing succeeds (mainly JSON).
   p_parse_best_effort: -1.5
   # Penalty when output is not format-only (e.g., extra text around the structure).
-  p_only: -1.0
+  p_only: -5.0
 
   # Additional penalty when the model emits wrapper text outside the extracted
   # structured payload (e.g., "Sure! ...", markdown fences, etc.).
   # You can override per format with p_extraneous_json / _yaml / _toml / _xml / _csv.
-  p_extraneous: -0.5
+  p_extraneous: -5.0
 
   # Legacy keys (kept for backward compatibility with older logs/configs)
-  w_json_only: 0.5
-  p_json_only_fail: -1.0
+  w_json_only: 1.0
+  p_json_only_fail: -2.0
 
 data:
   dataset_config: configs/dataset_hf_grpo.yaml
 
 eval:
-  run_eval_after_train: true
+  run_eval_after_train: false
   eval_config: configs/eval.yaml
   post_train_eval_mode: exec

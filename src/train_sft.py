@@ -231,13 +231,15 @@ def run_sft(
     # to avoid stacking multiple PEFT adapters by accident.
     merge_before_save = bool((cfg.get('training') or {}).get('merge_lora_before_save', (cfg.get('lora') or {}).get('merge_before_save', True)))
     if PeftModel is not None and isinstance(trainer.model, PeftModel) and merge_before_save:
+        # 1. save adapter-only
+        adapter_dir = ensure_dir(out_dir / "adapter")
+        trainer.model.save_pretrained(str(adapter_dir))
+
+        # 2. merge and save full model
         info("Merging LoRA adapter into base model before saving final checkpoint...")
         merged = trainer.model.merge_and_unload()
         merged.save_pretrained(str(final_dir), safe_serialization=True)
         tok.save_pretrained(str(final_dir))
-        # Also keep the adapter itself for inspection/debugging.
-        adapter_dir = ensure_dir(out_dir / "adapter")
-        trainer.model.save_pretrained(str(adapter_dir))
     else:
         trainer.save_model(str(final_dir))
         tok.save_pretrained(str(final_dir))
