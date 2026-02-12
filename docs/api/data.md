@@ -58,6 +58,13 @@ Each line is an object like:
 Loader:
 - `src/data/dataset.py::load_jsonl()`
 
+Note (important):
+- JSONL stores `output` as a JSON string, so quotes inside the structured text
+  are escaped in the file (e.g. TOML `"RX-..."`). This is **not** a syntax
+  error in the structured text; it is the JSON representation.
+- Always inspect/consume JSONL via `json.loads(...)` (or this repo's
+  `load_jsonl`) so the decoded `output` contains the intended text.
+
 
 ## StructEval JSON eval format
 

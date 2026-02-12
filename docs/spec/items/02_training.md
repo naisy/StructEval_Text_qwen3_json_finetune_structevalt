@@ -12,6 +12,29 @@
 Hugging Face の提供データセットを使用する場合は、合成データの利用やデータ変更は行わない。
 データの取得は `scripts/run_sft_hf.sh` / `scripts/run_grpo_hf.sh` が担当する。
 
+#### JSONL 表記上のエスケープに関する注意（重要）
+
+`data/*_hf_sft.jsonl` の `output` は **JSON 文字列**として保存されるため、
+TOML/YAML などの内部に含まれるダブルクォートは JSON の仕様に従って `\"` のように
+**エスケープ表記**になります。
+
+これは **ファイルの表記上の都合であり、文字列の内容が `\\` を含んでいるわけではありません**。
+（`json.loads()` でロードすれば `\\"` は「ダブルクォート `"`」としてデコードされ、
+実体は `"RX-..."` のような TOML になります。）
+
+確認例（出力を「人間が読む形」に戻す）:
+
+```python
+import json
+
+with open("data/valid_hf_sft.jsonl", "r", encoding="utf-8") as f:
+    row = json.loads(next(f))
+print(row["output"])  # ここでは \\ が消え、TOML として正しい文字列が表示される
+```
+
+※ 逆に、JSON をパースせずに文字列置換で処理すると `\` が残り、
+TOML/YAML の構文チェックが誤って落ちる原因になります。
+
 #### HF データの「排除（cleaning）」
 
 Hugging Face データはそのまま学習に流すと、
