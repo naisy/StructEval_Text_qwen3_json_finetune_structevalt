@@ -193,6 +193,76 @@ def _infer_output_type(ex: Dict[str, Any]) -> str:
     return ""
 
 
+# ----------------------------
+# Task classification (for balancing)
+# ----------------------------
+
+_U10BEI_FROMTO_RE = re.compile(
+    r"\b(?:Transform|Convert)\s+this\s+([A-Za-z0-9_\-]+)\s+data\s+into\s+([A-Za-z0-9_\-]+)\s+format\b",
+    re.IGNORECASE,
+)
+
+_U10BEI_FROMTO_RE_2 = re.compile(
+    r"\b(?:Transform|Convert)\s+this\s+([A-Za-z0-9_\-]+)\s+data\s+to\s+([A-Za-z0-9_\-]+)\b",
+    re.IGNORECASE,
+)
+
+
+def _infer_u10bei_task_schema(user_msg: str, output_type: str, fallback_schema: str | None) -> str:
+    """Infer a stable schema label for u-10bei examples.
+
+    Prefer an explicit from-to label (e.g. csv_to_toml) when we can detect it from the prompt.
+    Otherwise fall back to metadata.schema.
+    """
+    txt = (user_msg or "").strip()
+    out_t = _normalize_output_type(output_type)
+    m = _U10BEI_FROMTO_RE.search(txt) or _U10BEI_FROMTO_RE_2.search(txt)
+    if m:
+        src = _normalize_output_type(m.group(1)).lower()
+        tgt = _normalize_output_type(m.group(2) or out_t).lower()
+        if src and tgt:
+            return f"{src}_to_{tgt}"
+    if isinstance(fallback_schema, str) and fallback_schema.strip():
+        return fallback_schema.strip()
+    return "unknown"
+
+
+def _task_meta(dataset_name: str, ex: Dict[str, Any], user_msg: str, output_type: str) -> Dict[str, str]:
+    """Return task classification fields for later balancing/reporting."""
+    fam = "u10bei" if dataset_name.startswith("u-10bei/") else "daichira" if dataset_name.startswith("daichira/") else "hf"
+
+    # task_kind: conversion / generation / extract / transform
+    task_kind = "unknown"
+    schema = "unknown"
+
+    if dataset_name.startswith("u-10bei/"):
+        md = ex.get("metadata")
+        if isinstance(md, dict):
+            if isinstance(md.get("type"), str):
+                task_kind = str(md.get("type")).strip().lower()
+            fallback_schema = md.get("schema") if isinstance(md.get("schema"), str) else None
+        else:
+            fallback_schema = None
+        schema = _infer_u10bei_task_schema(user_msg=user_msg, output_type=output_type, fallback_schema=fallback_schema)
+    elif dataset_name.startswith("daichira/"):
+        if isinstance(ex.get("task"), str):
+            task_kind = str(ex.get("task")).strip().lower()
+        # subcategory encodes from-to for transform tasks (e.g., json_to_csv)
+        if isinstance(ex.get("subcategory"), str) and ex.get("subcategory"):
+            schema = str(ex.get("subcategory")).strip()
+        else:
+            schema = "unknown"
+
+    out_fmt = _normalize_output_type(output_type) or "UNKNOWN"
+    task_key = f"{fam}|{out_fmt}|{task_kind}|{schema}"
+    return {
+        "task_family": fam,
+        "task_kind": task_kind,
+        "task_schema": schema,
+        "task_key": task_key,
+    }
+
+
 def _extract_reference_output(ex: Dict[str, Any], asst_msg: str | None, output_type: str | None) -> str:
     """Get the final structured output (gold) from an HF example.
 
@@ -404,6 +474,10 @@ def main() -> None:
             query_text = build_query_text(name, sys_msg, user_msg)
             out_type = _infer_output_type(ex)
 
+            # Keep lightweight task classification fields to enable later
+            # balancing/reporting WITHOUT re-downloading HF datasets.
+            tmeta = _task_meta(name, ex, user_msg=user_msg, output_type=out_type)
+
             out_text = _extract_reference_output(ex, asst_msg, out_type)
             if not out_text:
                 continue
@@ -433,6 +507,7 @@ def main() -> None:
             row = {
                 "query": query_text,
                 "output": out_text,
+                **tmeta,
             }
             if out_type:
                 row["output_type"] = out_type
@@ -450,6 +525,7 @@ def main() -> None:
                     {
                         "task_id": f"hf_{task_id:08d}",
                         "query": query_text,
+                        **tmeta,
                         "feature_requirements": "",
                         "task_name": name,
                         "input_type": "Text",
@@ -459,6 +535,7 @@ def main() -> None:
                         "raw_output_metric": attrs,
                         # Gold output (Output-only; no CoT). Used for match-based reward.
                         "reference_output": out_text,
+                        **tmeta,
                         "rendering": False,
                     }
                 )
