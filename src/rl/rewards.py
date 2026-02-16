@@ -98,6 +98,11 @@ def compute_reward_components(
         out["yaml_indent_canonical"] = 0.0
         out["yaml_block_style"] = 0.0
 
+    if t == "TOML":
+        out["toml_canonical"] = 1.0 if V.toml_is_canonical(payload) else 0.0
+    else:
+        out["toml_canonical"] = 0.0
+
     # legacy/type-specific mirrors (useful for logging/config back-compat)
     tl = t.lower()
     out[f"parse_{tl}"] = out["parse"]
@@ -260,6 +265,18 @@ def combine_reward(components: dict[str, float], cfg: dict[str, Any], output_typ
             r += float(w.get("p_yaml_indent_canonical_fail", 0.0))
         if components.get("yaml_block_style", 0.0) < 1.0:
             r += float(w.get("p_yaml_block_style_fail", 0.0))
+    # --------------------------------------------------------------
+    # TOML style shaping (canonical formatting)
+    #
+    # TOML is less permissive than YAML, but datasets may contain multiple
+    # valid-but-inconsistent emission styles (key order, table ordering, etc.).
+    # This shaping signal encourages the model to converge to the repo's canonical TOML form.
+    # --------------------------------------------------------------
+    if t == "TOML":
+        r += float(w.get("w_toml_canonical", 0.0)) * components.get("toml_canonical", 0.0)
+        if components.get("toml_canonical", 0.0) < 1.0:
+            r += float(w.get("p_toml_canonical_fail", 0.0))
+
 
     # Penalize any wrapper text outside the structured payload (format-specific override supported).
     # This targets outputs like "Sure! ... ```xml" ... and pushes the model toward emitting

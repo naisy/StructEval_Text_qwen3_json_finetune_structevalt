@@ -97,6 +97,16 @@ reward:
   w_yaml_block_style: 0.2
   p_yaml_block_style_fail: -1.0
 
+  # --------------------------------------------------------------
+  # TOML canonical formatting shaping
+  #
+  # TOML outputs are normalized to a deterministic canonical form during HF import,
+  # but during GRPO the model may still emit alternative (valid) styles.
+  # This adds a small reward/penalty to push toward the canonical form.
+  # --------------------------------------------------------------
+  w_toml_canonical: 0.5
+  p_toml_canonical_fail: -2.0
+
   # Legacy keys (kept for backward compatibility with older logs/configs)
   w_json_only: 1.0
   p_json_only_fail: -2.0
