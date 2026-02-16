@@ -84,9 +84,16 @@ def dumps_toml_canonical(obj: Any) -> str:
 
     out_lines: list[str] = []
 
-    def emit_kv(prefix: list[str], key: str, value: Any) -> None:
-        full_key = ".".join(prefix + [key]) if prefix else key
-        out_lines.append(f"{full_key} = {_format_value(value)}")
+    # NOTE: When we emit a `[table]` or `[[array-of-tables]]` header, keys that
+    # follow MUST be written *relative* to that table (e.g., `height = 1` under
+    # `[dimensions]`), not as dotted keys like `dimensions.height = 1`.
+    #
+    # Earlier versions of this module mistakenly prefixed scalar keys with the
+    # full table path while also emitting the table header, which changes the
+    # parsed structure (it nests tables twice) and defeats the purpose of
+    # canonicalization.
+    def emit_kv(key: str, value: Any) -> None:
+        out_lines.append(f"{key} = {_format_value(value)}")
 
     def emit_table_header(path: Iterable[str]) -> None:
         p = ".".join(path)
@@ -99,7 +106,7 @@ def dumps_toml_canonical(obj: Any) -> str:
     def is_array_of_tables(v: Any) -> bool:
         return isinstance(v, list) and len(v) > 0 and all(isinstance(x, dict) for x in v)
 
-    def walk(prefix: list[str], d: dict[str, Any], *, top_level: bool = False) -> None:
+    def walk(prefix: list[str], d: dict[str, Any]) -> None:
         # Emit scalar keys first, then tables/array-of-tables.
         scalar_keys: list[str] = []
         table_keys: list[str] = []
@@ -115,7 +122,9 @@ def dumps_toml_canonical(obj: Any) -> str:
                 scalar_keys.append(k)
 
         for k in sorted(scalar_keys):
-            emit_kv(prefix, k, d[k])
+            # Under a table header we emit keys relative to the table.
+            # At the root (no table header) we also emit bare keys.
+            emit_kv(k, d[k])
 
         # Blank line between scalar section and tables when both exist.
         if scalar_keys and (table_keys or aot_keys):
@@ -146,7 +155,7 @@ def dumps_toml_canonical(obj: Any) -> str:
         while out_lines and out_lines[-1] == "":
             out_lines.pop()
 
-    walk([], obj, top_level=True)
+    walk([], obj)
 
     # Ensure trailing newline for nicer diffs.
     return "\n".join(out_lines).rstrip() + "\n"

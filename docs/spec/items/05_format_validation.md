@@ -70,6 +70,8 @@ TOML は YAML ほど寛容ではありませんが、学習データ側に **複
 
 - マッピング（テーブル）内のキーは **ソート**して出力
 - スカラー値を先に出力し、その後に `[table]` / `[[array-of-tables]]` を出力
+- `[table]` / `[[array-of-tables]]` の中では **キーは相対キー**（`height = 1`）で出力し、
+  `dimensions.height = 1` のような **dotted key を混ぜない**（スタイル混在の原因になる）
 - 余計な装飾（code fence / `Output:` など）は不可（only 判定）
 
 実装:
