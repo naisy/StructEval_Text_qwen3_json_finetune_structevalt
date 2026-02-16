@@ -100,8 +100,10 @@ def compute_reward_components(
 
     if t == "TOML":
         out["toml_canonical"] = 1.0 if V.toml_is_canonical(payload) else 0.0
+        out["toml_canonical_soft"] = float(V.toml_canonical_similarity(payload))
     else:
         out["toml_canonical"] = 0.0
+        out["toml_canonical_soft"] = 0.0
 
     # legacy/type-specific mirrors (useful for logging/config back-compat)
     tl = t.lower()
@@ -274,6 +276,17 @@ def combine_reward(components: dict[str, float], cfg: dict[str, Any], output_typ
     # --------------------------------------------------------------
     if t == "TOML":
         r += float(w.get("w_toml_canonical", 0.0)) * components.get("toml_canonical", 0.0)
+        # Dense shaping toward canonical TOML. This should be preferred over
+        # cliff-like binary penalties.
+        r += float(w.get("w_toml_canonical_soft", 0.0)) * components.get("toml_canonical_soft", 0.0)
+
+        # Optional proportional penalty: penalize (1 - similarity).
+        # This avoids the all-or-nothing behavior of `p_toml_canonical_fail`.
+        p_scale = float(w.get("p_toml_canonical_soft_scale", 0.0))
+        if p_scale != 0.0:
+            r += p_scale * (1.0 - float(components.get("toml_canonical_soft", 0.0)))
+
+        # Legacy binary penalty (kept for backward compatibility).
         if components.get("toml_canonical", 0.0) < 1.0:
             r += float(w.get("p_toml_canonical_fail", 0.0))
 

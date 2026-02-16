@@ -50,5 +50,16 @@ def test_reward_other_formats_parse():
     csv = """a,b\n1,2\n"""
 
     assert compute_reward_components(toml, output_type="TOML")["parse"] == 1.0
+    # Canonical TOML should give a perfect soft score.
+    comps_t = compute_reward_components(toml, output_type="TOML")
+    assert comps_t["toml_canonical"] == 1.0
+    assert comps_t["toml_canonical_soft"] == 1.0
+
+    # Non-canonical but parseable TOML should still get a dense (0,1) score.
+    non_canon = """b = 1\na = 2\n"""
+    comps_nc = compute_reward_components(non_canon, output_type="TOML")
+    assert comps_nc["parse"] == 1.0
+    assert comps_nc["toml_canonical"] == 0.0
+    assert 0.0 < comps_nc["toml_canonical_soft"] < 1.0
     assert compute_reward_components(xml, output_type="XML")["parse"] == 1.0
     assert compute_reward_components(csv, output_type="CSV")["parse"] == 1.0

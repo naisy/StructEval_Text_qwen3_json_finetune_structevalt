@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import re
+import difflib
 import tomllib
 
 from src.data.toml_canonical import canonicalize_toml_text as _canonicalize_toml_text
@@ -297,6 +298,41 @@ def toml_is_canonical(text: str) -> bool:
     (sorted keys, table/array-of-tables emitted deterministically).
     """
     return _toml_is_canonical(text)
+
+
+def toml_canonical_similarity(text: str) -> float:
+    """Return a dense [0,1] score for how close TOML text is to canonical style.
+
+    This is *style* similarity, not semantic correctness.
+
+    - If `text` is parseable as TOML, we canonicalize it deterministically and
+      compute a normalized string similarity between the original text and the
+      canonicalized text.
+    - If parsing fails, returns 0.0.
+
+    Why this exists
+    --------------
+    A binary "is canonical" reward can be too sparse for GRPO: a single small
+    deviation (key order, blank line placement, table ordering, etc.) flips the
+    predicate to False and yields a cliff-like penalty. A similarity score gives
+    a dense signal that increases as the model output approaches canonical.
+    """
+
+    ok, _already, canon, _err = _canonicalize_toml_text(text)
+    if not ok:
+        return 0.0
+
+    def _norm(s: str) -> str:
+        # Normalize whitespace so the score focuses on ordering/structure,
+        # not trailing spaces.
+        lines = [ln.rstrip() for ln in (s or "").strip().splitlines()]
+        return "\n".join(lines).strip() + "\n"
+
+    a = _norm(text)
+    b = _norm(canon)
+    if not a or not b:
+        return 0.0
+    return float(difflib.SequenceMatcher(a=a, b=b).ratio())
 
 
 def canonicalize_toml_text(text: str) -> tuple[bool, bool, str, str | None]:

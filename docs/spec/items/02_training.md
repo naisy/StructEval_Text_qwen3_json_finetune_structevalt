@@ -212,6 +212,26 @@ HF 側の system を捨てると指示が欠落して学習が不安定になる
   - 解析時に「構造部分だけ」を抽出できた場合でも、外側に余計な文字があるケース（"Sure! ...", "Output:", fenced など）を強く減らしたい場合は `p_extraneous` を使う。
     - `p_extraneous_json` / `_yaml` / `_toml` / `_xml` / `_csv` で形式別に上書き可能。
 
+### TOML canonical の reward 設計（dense 版）
+
+TOML の canonical 判定を **true/false だけ**で報酬化すると、
+キー順や空行位置などの「小さな差分」で一気に false になり、
+学習信号がスパースになりやすい。
+
+そのため GRPO では、TOML がパース可能な場合に
+**「出力 TOML」と「その TOML を決定的に canonicalize した結果」の文字列類似度（0〜1）**を返す
+`toml_canonical_soft` を用意している。
+
+- 実装: `src/data/validators.py::toml_canonical_similarity`
+- reward への反映: `src/rl/rewards.py`
+
+設定キー（`configs/grpo_hf.yaml` のデフォルト）:
+
+- `w_toml_canonical_soft`: 類似度そのものへのボーナス（dense）
+- `p_toml_canonical_soft_scale`: `(1 - similarity)` に比例したペナルティ（dense）
+- 互換性のため `w_toml_canonical` / `p_toml_canonical_fail`（binary）も残すが、
+  cliff を避けるためデフォルトでは `p_toml_canonical_fail: 0.0` としている
+
 ### gold 出力がある場合（HF データセット）
 
 Hugging Face の提供データセットは多くの場合 `reference_output`（正解の構造文字列）を含む。

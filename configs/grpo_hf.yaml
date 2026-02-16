@@ -102,10 +102,17 @@ reward:
   #
   # TOML outputs are normalized to a deterministic canonical form during HF import,
   # but during GRPO the model may still emit alternative (valid) styles.
-  # This adds a small reward/penalty to push toward the canonical form.
+  # This adds a *dense* shaping signal based on similarity to canonical TOML.
+  # Prefer this over the cliff-like binary penalty.
   # --------------------------------------------------------------
-  w_toml_canonical: 0.5
-  p_toml_canonical_fail: -2.0
+  # Binary bonus (optional)
+  w_toml_canonical: 0.1
+  # Dense similarity bonus
+  w_toml_canonical_soft: 0.5
+  # Proportional penalty: penalize (1 - similarity)
+  p_toml_canonical_soft_scale: -2.0
+  # Legacy binary penalty (kept for compatibility; default off to avoid sparsity)
+  p_toml_canonical_fail: 0.0
 
   # Legacy keys (kept for backward compatibility with older logs/configs)
   w_json_only: 1.0

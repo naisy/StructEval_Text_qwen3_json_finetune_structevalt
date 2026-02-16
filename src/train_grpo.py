@@ -243,6 +243,21 @@ def run_grpo(
                             r += float(cfg.get("reward", {}).get("p_yaml_block_style_fail", 0.0))
                         else:
                             r += float(cfg.get("reward", {}).get("w_yaml_block_style", 0.0))
+                    if otype == "TOML":
+                        # Dense shaping toward canonical TOML style.
+                        # See: src.data.validators.toml_canonical_similarity
+                        sim = float(V.toml_canonical_similarity(payload))
+                        w_soft = float(cfg.get("reward", {}).get("w_toml_canonical_soft", 0.0))
+                        if w_soft != 0.0:
+                            r += w_soft * sim
+                        p_scale = float(cfg.get("reward", {}).get("p_toml_canonical_soft_scale", 0.0))
+                        if p_scale != 0.0:
+                            r += p_scale * (1.0 - sim)
+                        # Legacy cliff-like penalty (kept for compatibility).
+                        if not V.toml_is_canonical(payload):
+                            r += float(cfg.get("reward", {}).get("p_toml_canonical_fail", 0.0))
+                        else:
+                            r += float(cfg.get("reward", {}).get("w_toml_canonical", 0.0))
                     if has_extraneous:
                         # format-specific override supported: p_extraneous_xml, etc.
                         pen = cfg.get("reward", {}).get(f"p_extraneous_{otype.lower()}")

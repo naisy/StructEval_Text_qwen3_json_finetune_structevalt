@@ -11,9 +11,14 @@ Priority:
    - Format-aware parse + "only" checks (JSON/YAML/TOML/XML/CSV)
    - Optional *gold matching* when the dataset provides `reference_output`
 
+Additional shaping:
+- YAML: indentation (2-space) and block-style (avoid flow-style)
+- TOML: dense "closeness to canonical" score (`toml_canonical_soft`)
+
 Implementation:
 - `src/structeval_t/scorer.py::eval_structeval_t_json`
 - `src/train_grpo.py::reward_fn(...)` 
+  - component reward helpers: `src/rl/rewards.py`
 
 Notes:
 - TRL's GRPO passes dataset columns as keyword arguments to `reward_fn`.
