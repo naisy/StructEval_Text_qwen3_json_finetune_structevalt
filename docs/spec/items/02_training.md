@@ -42,7 +42,10 @@ Hugging Face データはそのまま学習に流すと、
 （c）変換タスクなのに入力と出力が整合していない、などの理由で学習が不安定になることがある。
 
 本プロジェクトでは `structeval_dataset_check.ipynb` で確定した排除手法を
-HF 変換時に適用する（データ内容の改変はしない。サンプルを落とすだけ）。
+HF 変換時に適用する（原則はサンプルを落とすだけ）。
+
+ただし **TOML 出力に限り**、学習データ内の `output` / `reference_output` を決定的な canonical 形式へ正規化する。
+（意味を変えない整形のみ。TOML の parse 結果が同一であることを前提に、キー順序や table 出力順を統一する。）
 
 - 実装: `src/data/hf_dataset_cleaning.py`（決定器）
 - 適用箇所: `src/data/import_hf_structured_sft.py` の `--filter-invalid`
