@@ -7,8 +7,8 @@ model:
 
 lora:
   enabled: true
-  r: 8
-  alpha: 16
+  r: 1
+  alpha: 2
   dropout: 0.05
   target_modules: auto  # "auto" uses a heuristic list in src/models/lora.py
 
@@ -32,7 +32,7 @@ training:
   per_device_eval_batch_size: 2
   gradient_accumulation_steps: 8
   num_train_epochs: 2
-  learning_rate: 1.0e-5
+  learning_rate: 5.25e-5
   warmup_ratio: 0.05
   weight_decay: 0.0
   logging_steps: 10
@@ -50,11 +50,12 @@ data:
   dataset_config: configs/dataset_hf_sft.yaml
   # Optional: append local JSONL datasets AFTER HF balancing & split.
   # Keep this OFF by default for easy A/B experiments.
-  use_extra_datasets: false
+  use_extra_datasets: true
 
   # List of local dataset files (JSONL). Each file is split into train/valid and
   # appended to `data/train_hf_sft.jsonl` and `data/valid_hf_sft.jsonl`.
-  extra_datasets: []
+  extra_datasets:
+    - data/my_sft_dataset.jsonl
 
   # Default split params for each extra dataset file.
   extra_split:
