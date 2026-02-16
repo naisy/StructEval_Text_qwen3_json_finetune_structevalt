@@ -1,0 +1,235 @@
+"""Append user-provided local datasets to the prepared HF train/valid splits.
+
+Why this exists
+---------------
+The HF training scripts (`scripts/run_sft_hf.sh`, `scripts/run_grpo_hf.sh`) build
+`data/train_hf_*.{jsonl,json}` and `data/valid_hf_*.{jsonl,json}`.
+
+The project also supports adding *local* datasets after the HF balancing step
+so that:
+  - HF sampling/balancing behavior remains unchanged.
+  - User datasets can focus on missing patterns (e.g. TOML inline tables,
+    XML escaping like '&' -> '&amp;').
+
+Configuration
+-------------
+Add a list under the top-level `data.extra_datasets` in:
+  - `configs/sft_hf.yaml`  (stage='sft')
+  - `configs/grpo_hf.yaml` (stage='grpo')
+
+Each entry may be either:
+
+1) Pre-split (recommended):
+
+  - use: true
+    format: jsonl | structeval_json
+    train_path: data/my_xxx_train.jsonl
+    valid_path: data/my_xxx_valid.jsonl
+
+2) Single file + split (convenience):
+
+  - use: true
+    format: jsonl | structeval_json
+    path: data/my_xxx.jsonl
+    split:
+      valid_ratio: 0.1
+      seed: 42
+
+This module is intentionally format-preserving:
+  - jsonl stays jsonl (SFT)
+  - StructEval task arrays stay JSON arrays (GRPO)
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import random
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
+
+from src.data.dataset import load_dataset_any
+from src.utils.io import load_yaml
+from src.utils.logging import info, warn
+
+
+@dataclass
+class ExtraSpec:
+    fmt: str
+    train_path: str | None
+    valid_path: str | None
+    path: str | None
+    split_valid_ratio: float
+    split_seed: int
+
+
+def _parse_extra_specs(cfg: dict, *, stage: str) -> List[ExtraSpec]:
+    data = (cfg.get("data") or {})
+    extras = data.get("extra_datasets")
+    if not extras:
+        return []
+    if not isinstance(extras, list):
+        raise ValueError("data.extra_datasets must be a list")
+
+    out: List[ExtraSpec] = []
+    for i, e in enumerate(extras):
+        if not isinstance(e, dict):
+            raise ValueError(f"data.extra_datasets[{i}] must be a mapping")
+        if not bool(e.get("use", True)):
+            continue
+        fmt = str(e.get("format") or "").strip().lower()
+        if not fmt:
+            raise ValueError(f"data.extra_datasets[{i}].format is required")
+        if stage == "sft" and fmt != "jsonl":
+            raise ValueError(
+                f"SFT extra dataset must be format=jsonl, got {fmt} at index {i}"
+            )
+        if stage == "grpo" and fmt not in {"structeval_json", "structeval-t", "structeval_t"}:
+            raise ValueError(
+                f"GRPO extra dataset must be format=structeval_json, got {fmt} at index {i}"
+            )
+
+        train_path = e.get("train_path")
+        valid_path = e.get("valid_path")
+        path = e.get("path")
+
+        split_cfg = e.get("split") or {}
+        if not isinstance(split_cfg, dict):
+            raise ValueError(f"data.extra_datasets[{i}].split must be a mapping")
+        valid_ratio = float(split_cfg.get("valid_ratio", 0.1))
+        seed = int(split_cfg.get("seed", 42))
+
+        out.append(
+            ExtraSpec(
+                fmt=fmt,
+                train_path=str(train_path) if train_path else None,
+                valid_path=str(valid_path) if valid_path else None,
+                path=str(path) if path else None,
+                split_valid_ratio=valid_ratio,
+                split_seed=seed,
+            )
+        )
+    return out
+
+
+def _split_items(items: List[Dict[str, Any]], *, valid_ratio: float, seed: int) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    if not (0.0 < valid_ratio < 1.0):
+        raise ValueError(f"valid_ratio must be in (0,1), got {valid_ratio}")
+    idx = list(range(len(items)))
+    rng = random.Random(seed)
+    rng.shuffle(idx)
+    n_valid = max(1, int(round(len(items) * valid_ratio)))
+    valid_idx = set(idx[:n_valid])
+    train = [items[i] for i in range(len(items)) if i not in valid_idx]
+    valid = [items[i] for i in range(len(items)) if i in valid_idx]
+    return train, valid
+
+
+def _append_jsonl(path: Path, items: List[Dict[str, Any]]) -> None:
+    if not items:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        for ex in items:
+            f.write(json.dumps(ex, ensure_ascii=False) + "\n")
+
+
+def _append_json_array(path: Path, items: List[Dict[str, Any]]) -> None:
+    if not items:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    base: List[Dict[str, Any]] = []
+    if path.exists():
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            raise ValueError(f"Expected JSON array at {path}")
+        base = data
+    base.extend(items)
+    path.write_text(json.dumps(base, ensure_ascii=False), encoding="utf-8")
+
+
+def append_extra_datasets(
+    *,
+    stage: str,
+    config_path: str,
+    train_path: str,
+    valid_path: str,
+) -> Dict[str, Any]:
+    """Append extra datasets (configured in YAML) into the prepared split files."""
+    stage = str(stage).strip().lower()
+    if stage not in {"sft", "grpo"}:
+        raise ValueError("stage must be 'sft' or 'grpo'")
+
+    cfg = load_yaml(config_path)
+    specs = _parse_extra_specs(cfg, stage=stage)
+    if not specs:
+        info("No extra datasets configured (data.extra_datasets empty).")
+        return {"appended": 0, "entries": 0}
+
+    appended_total = 0
+    entry_reports: List[Dict[str, Any]] = []
+
+    for s in specs:
+        # Load items
+        if s.train_path and s.valid_path:
+            train_items = load_dataset_any(s.train_path, "jsonl" if stage == "sft" else "structeval_json")
+            valid_items = load_dataset_any(s.valid_path, "jsonl" if stage == "sft" else "structeval_json")
+            src = {"train_path": s.train_path, "valid_path": s.valid_path, "mode": "presplit"}
+        elif s.path:
+            all_items = load_dataset_any(s.path, "jsonl" if stage == "sft" else "structeval_json")
+            train_items, valid_items = _split_items(
+                all_items, valid_ratio=s.split_valid_ratio, seed=s.split_seed
+            )
+            src = {
+                "path": s.path,
+                "mode": "split",
+                "valid_ratio": s.split_valid_ratio,
+                "seed": s.split_seed,
+            }
+        else:
+            raise ValueError("Each extra dataset entry must provide (train_path+valid_path) or path")
+
+        # Append
+        if stage == "sft":
+            _append_jsonl(Path(train_path), train_items)
+            _append_jsonl(Path(valid_path), valid_items)
+        else:
+            _append_json_array(Path(train_path), train_items)
+            _append_json_array(Path(valid_path), valid_items)
+
+        appended_total += len(train_items) + len(valid_items)
+        entry_reports.append(
+            {
+                "source": src,
+                "train_items": len(train_items),
+                "valid_items": len(valid_items),
+            }
+        )
+
+    info(
+        f"Appended extra datasets: stage={stage} entries={len(entry_reports)} total_items_appended={appended_total}"
+    )
+    return {"appended": appended_total, "entries": len(entry_reports), "detail": entry_reports}
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="Append local extra datasets to prepared HF splits.")
+    ap.add_argument("--stage", required=True, choices=["sft", "grpo"])
+    ap.add_argument("--config", required=True, help="YAML config path (configs/sft_hf.yaml or configs/grpo_hf.yaml)")
+    ap.add_argument("--train", required=True, help="Prepared train split path to append into")
+    ap.add_argument("--valid", required=True, help="Prepared valid split path to append into")
+    args = ap.parse_args()
+
+    try:
+        rep = append_extra_datasets(stage=args.stage, config_path=args.config, train_path=args.train, valid_path=args.valid)
+    except Exception as e:
+        warn(f"Failed to append extra datasets: {e}")
+        raise
+    # Print a compact machine-readable summary
+    print(json.dumps(rep, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -55,6 +55,23 @@ PYTHONPATH="$(pwd)" python -m src.data.prepare_sft_split \
   --valid-out data/valid_hf_sft.jsonl \
   --seed 42
 
+# --------------------------------------------------------------
+# Optional: append user-provided local datasets AFTER HF balancing
+#
+# Configure in configs/sft_hf.yaml:
+#   data:
+#     extra_datasets:
+#       - use: true
+#         format: jsonl
+#         train_path: data/my_x_train.jsonl
+#         valid_path: data/my_x_valid.jsonl
+# --------------------------------------------------------------
+PYTHONPATH="$(pwd)" python -m src.data.append_extra_datasets \
+  --stage sft \
+  --config configs/sft_hf.yaml \
+  --train data/train_hf_sft.jsonl \
+  --valid data/valid_hf_sft.jsonl
+
 # Ensure StructEval-T multi-format eval tasks exist for post-training evaluation.
 # (If you prefer offline / no-download runs, you can provide EVAL_TASKS_PATH or
 # rely on the built-in mock fallback.)

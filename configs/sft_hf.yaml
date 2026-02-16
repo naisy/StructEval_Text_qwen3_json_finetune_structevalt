@@ -48,6 +48,14 @@ training:
 
 data:
   dataset_config: configs/dataset_hf_sft.yaml
+  # Optional: append local JSONL datasets AFTER HF balancing & split.
+  # This lets you add missing patterns (e.g., TOML inline tables) without
+  # changing HF sampling/balancing behavior.
+  #
+  # Each entry can be:
+  # - pre-split (recommended): train_path + valid_path
+  # - single file + split: path + split.valid_ratio
+  extra_datasets: []
 
 eval:
   # quick validation after SFT

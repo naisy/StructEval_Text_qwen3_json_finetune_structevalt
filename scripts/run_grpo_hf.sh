@@ -56,6 +56,23 @@ PYTHONPATH="$(pwd)" python -m src.data.prepare_structeval_split \
   --seed 42 \
   --valid-ratio 0.1
 
+# --------------------------------------------------------------
+# Optional: append user-provided local datasets AFTER HF balancing
+#
+# Configure in configs/grpo_hf.yaml:
+#   data:
+#     extra_datasets:
+#       - use: true
+#         format: structeval_json
+#         train_path: data/my_x_train.json
+#         valid_path: data/my_x_valid.json
+# --------------------------------------------------------------
+PYTHONPATH="$(pwd)" python -m src.data.append_extra_datasets \
+  --stage grpo \
+  --config configs/grpo_hf.yaml \
+  --train data/train_hf_grpo_tasks.json \
+  --valid data/valid_hf_grpo_tasks.json
+
 # Ensure StructEval-T multi-format eval tasks exist for post-training evaluation.
 if [ ! -f data/structeval_text_all.json ]; then
   echo "INFO  Downloading StructEval-T eval tasks (JSON/YAML/TOML/XML/CSV) to data/structeval_text_all.json ..."
