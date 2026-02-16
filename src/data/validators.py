@@ -5,6 +5,9 @@ import io
 import json
 import re
 import tomllib
+
+from src.data.toml_canonical import canonicalize_toml_text as _canonicalize_toml_text
+from src.data.toml_canonical import toml_is_canonical as _toml_is_canonical
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Tuple
@@ -281,6 +284,24 @@ def is_fenced_block_only(text: str) -> bool:
     if inside is None:
         return False
     return outside.strip() == ""
+
+# ---------------------------------------------------------------------------
+# TOML canonicalization (project-specific style)
+# ---------------------------------------------------------------------------
+
+
+def toml_is_canonical(text: str) -> bool:
+    """Return True if TOML text matches this repo's canonical formatting.
+
+    Canonical form is defined by `src.data.toml_canonical.dumps_toml_canonical`
+    (sorted keys, table/array-of-tables emitted deterministically).
+    """
+    return _toml_is_canonical(text)
+
+
+def canonicalize_toml_text(text: str) -> tuple[bool, bool, str, str | None]:
+    """Return (ok, already_canonical, canonical_text, err)."""
+    return _canonicalize_toml_text(text)
 
 
 def parse_json(text: str) -> Tuple[bool, Any | None, str | None]:

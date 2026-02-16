@@ -504,6 +504,14 @@ def main() -> None:
                     filtered_invalid_by_reason[dec.reason] = filtered_invalid_by_reason.get(dec.reason, 0) + 1
                     continue
 
+
+            # TOML outputs are normalized to a deterministic canonical form.
+            # This prevents mixing incompatible TOML styles across HF sources (e.g., u-10bei vs daichira).
+            if out_type and _normalize_output_type(out_type) == "TOML":
+                ok_c, _already, canon, _err = V.canonicalize_toml_text(out_text)
+                if ok_c and canon.strip():
+                    out_text = canon
+
             row = {
                 "query": query_text,
                 "output": out_text,
