@@ -115,33 +115,26 @@ Hugging Face のみだとカバーされないパターン（例: **TOML inline 
 
 ### 設定方法
 
-`configs/sft_hf.yaml` / `configs/grpo_hf.yaml` の `data.extra_datasets` に配列で指定する。
+`configs/sft_hf.yaml` / `configs/grpo_hf.yaml` の `data.use_extra_datasets` を `true` にし、
+`data.extra_datasets` にローカルファイルを配列で指定する。
 
-推奨（train/valid を自分で分割しておく）:
-
-```yaml
-data:
-  extra_datasets:
-    - use: true
-      format: jsonl
-      train_path: data/my_inline_table_sft_train.jsonl
-      valid_path: data/my_inline_table_sft_valid.jsonl
-```
-
-単一ファイルを比率で分割したい場合（簡易）:
+単一ファイルを比率で分割して append（推奨・シンプル）:
 
 ```yaml
 data:
+  use_extra_datasets: true
   extra_datasets:
-    - use: true
-      format: jsonl
-      path: data/my_inline_table_sft.jsonl
-      split:
-        valid_ratio: 0.1
-        seed: 42
+    - data/my_inline_table_sft1.jsonl
+    - data/my_inline_table_sft2.jsonl
+  extra_split:
+    valid_ratio: 0.1
+    seed: 42
 ```
 
-GRPO 側は format を `structeval_json` にして同様に指定する（ファイルは JSON 配列）。
+GRPO 側は `extra_datasets` に JSON 配列（StructEval 形式）のファイルを並べる。
+
+> 互換性のため、より詳細な dict 形式（train/valid を手動分割して `train_path` / `valid_path` を指定）も引き続き利用できるが、
+> 実験しやすさのため、基本は上記の「ファイル列挙 + 自動 split」を推奨。
 
 ### 実装
 

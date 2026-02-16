@@ -105,7 +105,13 @@ data:
   dataset_config: configs/dataset_hf_grpo.yaml
   # Optional: append local StructEval-style task JSON arrays AFTER HF balancing & split.
   # Useful when HF datasets lack certain patterns (e.g., TOML inline tables).
+  use_extra_datasets: false
+  # List of local dataset files (JSON arrays). Each file is split into train/valid and
+  # appended to `data/train_hf_grpo_tasks.json` and `data/valid_hf_grpo_tasks.json`.
   extra_datasets: []
+  extra_split:
+    valid_ratio: 0.1
+    seed: 42
 
 eval:
   run_eval_after_train: false

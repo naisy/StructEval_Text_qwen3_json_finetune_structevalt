@@ -13,9 +13,22 @@ so that:
 
 Configuration
 -------------
-Add a list under the top-level `data.extra_datasets` in:
+Enable and list extras under the top-level `data.*` in:
   - `configs/sft_hf.yaml`  (stage='sft')
   - `configs/grpo_hf.yaml` (stage='grpo')
+
+Minimal (recommended) form:
+
+  data:
+    use_extra_datasets: true
+    extra_datasets:
+      - data/my_extra_1.jsonl
+      - data/my_extra_2.jsonl
+    extra_split:
+      valid_ratio: 0.1
+      seed: 42
+
+Each file is split into train/valid and appended to the prepared HF splits.
 
 Each entry may be either:
 
@@ -76,6 +89,17 @@ def _infer_fmt_from_path(p: str) -> str:
 
 def _parse_extra_specs(cfg: dict, *, stage: str) -> List[ExtraSpec]:
     data = (cfg.get("data") or {})
+    # Simple on/off switch for quick experiments.
+    # If omitted, default is False (disabled).
+    if not bool(data.get("use_extra_datasets", False)):
+        return []
+
+    default_split = data.get("extra_split") or {}
+    if not isinstance(default_split, dict):
+        raise ValueError("data.extra_split must be a mapping if provided")
+    default_valid_ratio = float(default_split.get("valid_ratio", 0.1))
+    default_seed = int(default_split.get("seed", 42))
+
     extras = data.get("extra_datasets")
     if not extras:
         return []
@@ -134,8 +158,8 @@ def _parse_extra_specs(cfg: dict, *, stage: str) -> List[ExtraSpec]:
                     train_path=None,
                     valid_path=None,
                     path=str(path),
-                    split_valid_ratio=0.1,
-                    split_seed=42,
+                    split_valid_ratio=default_valid_ratio,
+                    split_seed=default_seed,
                 )
             )
             continue
@@ -232,6 +256,11 @@ def append_extra_datasets(
         raise ValueError("stage must be 'sft' or 'grpo'")
 
     cfg = load_yaml(config_path)
+    data_cfg = (cfg.get("data") or {})
+    if not bool(data_cfg.get("use_extra_datasets", False)):
+        info("Extra datasets disabled (data.use_extra_datasets=false).")
+        return {"appended": 0, "entries": 0, "disabled": True}
+
     specs = _parse_extra_specs(cfg, stage=stage)
     if not specs:
         info("No extra datasets configured (data.extra_datasets empty).")
