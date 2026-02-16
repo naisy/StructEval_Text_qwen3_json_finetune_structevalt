@@ -64,6 +64,16 @@ class ExtraSpec:
     split_seed: int
 
 
+def _infer_fmt_from_path(p: str) -> str:
+    s = str(p).lower()
+    if s.endswith(".jsonl"):
+        return "jsonl"
+    if s.endswith(".json"):
+        return "structeval_json"
+    # Default: treat as jsonl (common for SFT); stage validation will catch mismatches.
+    return "jsonl"
+
+
 def _parse_extra_specs(cfg: dict, *, stage: str) -> List[ExtraSpec]:
     data = (cfg.get("data") or {})
     extras = data.get("extra_datasets")
@@ -72,15 +82,75 @@ def _parse_extra_specs(cfg: dict, *, stage: str) -> List[ExtraSpec]:
     if not isinstance(extras, list):
         raise ValueError("data.extra_datasets must be a list")
 
+    # Convenience: if the whole list is exactly two string paths and looks like
+    # a (train, valid) pair, treat it as a single pre-split entry.
+    if (
+        len(extras) == 2
+        and all(isinstance(x, str) for x in extras)
+        and ("train" in str(extras[0]).lower())
+        and ("valid" in str(extras[1]).lower() or "val" in str(extras[1]).lower())
+    ):
+        p0, p1 = str(extras[0]), str(extras[1])
+        fmt0 = _infer_fmt_from_path(p0)
+        fmt1 = _infer_fmt_from_path(p1)
+        if fmt0 != fmt1:
+            raise ValueError("extra_datasets train/valid pair must have the same format")
+        if stage == "sft" and fmt0 != "jsonl":
+            raise ValueError("SFT extra datasets must be .jsonl")
+        if stage == "grpo" and fmt0 != "structeval_json":
+            raise ValueError("GRPO extra datasets must be JSON arrays (.json)")
+        return [
+            ExtraSpec(
+                fmt=fmt0,
+                train_path=p0,
+                valid_path=p1,
+                path=None,
+                split_valid_ratio=0.1,
+                split_seed=42,
+            )
+        ]
+
     out: List[ExtraSpec] = []
     for i, e in enumerate(extras):
+        # Allow a shorthand string entry:
+        #   extra_datasets: ["data/my_extra.jsonl"]
+        # In this case we always split the file into train/valid.
+        if isinstance(e, str):
+            path = e
+            fmt = _infer_fmt_from_path(path)
+            if stage == "sft" and fmt != "jsonl":
+                raise ValueError(
+                    f"SFT extra dataset must be a .jsonl file, got {path}"
+                )
+            if stage == "grpo" and fmt != "structeval_json":
+                raise ValueError(
+                    f"GRPO extra dataset must be a JSON array file (.json), got {path}"
+                )
+
+            # Default split params
+            out.append(
+                ExtraSpec(
+                    fmt=fmt,
+                    train_path=None,
+                    valid_path=None,
+                    path=str(path),
+                    split_valid_ratio=0.1,
+                    split_seed=42,
+                )
+            )
+            continue
+
         if not isinstance(e, dict):
-            raise ValueError(f"data.extra_datasets[{i}] must be a mapping")
+            raise ValueError(f"data.extra_datasets[{i}] must be a mapping or a string path")
         if not bool(e.get("use", True)):
             continue
+
         fmt = str(e.get("format") or "").strip().lower()
         if not fmt:
-            raise ValueError(f"data.extra_datasets[{i}].format is required")
+            # If user omits format, infer from the provided path(s).
+            fmt = _infer_fmt_from_path(e.get("path") or e.get("train_path") or "")
+            if not fmt:
+                raise ValueError(f"data.extra_datasets[{i}].format is required")
         if stage == "sft" and fmt != "jsonl":
             raise ValueError(
                 f"SFT extra dataset must be format=jsonl, got {fmt} at index {i}"
