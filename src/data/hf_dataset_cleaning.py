@@ -453,10 +453,17 @@ def decide_keep_example(
     # They are not necessarily FAILED; many are UNKNOWN/benign and should remain.
 
     # base_ok satisfied here
-    kind, _src_u, tgt_u, has_payload = classify_task_text(prompt)
+    kind, src_u, tgt_u, has_payload = classify_task_text(prompt)
 
-    # 4) semantic FAIL drop for conversion-like tasks (clean_strict)
-    if kind == "clean_strict" and has_payload and tgt_u is not None:
+    # 4) semantic FAIL drop for *conversion* tasks only (clean_strict with explicit src->tgt)
+    #
+    # daichira/* datasets include many "extract" tasks where the input is free-form TEXT and
+    # the prompt only specifies the *target* format (e.g. "output TOML"). For such tasks,
+    # equivalence_check is not meaningful and tends to produce false FAILs (semantic_mismatch),
+    # wiping out entire formats (observed: TOML/YAML nearly empty).
+    #
+    # Therefore we require an explicit source format (src_u) before running equivalence_check.
+    if kind == "clean_strict" and has_payload and (tgt_u is not None) and (src_u is not None):
         eq = equivalence_check(prompt, out_t.lower(), extracted_output)
         if eq.equivalence == "FAIL":
             return CleaningDecision(False, f"equiv_fail:{eq.reason}")
