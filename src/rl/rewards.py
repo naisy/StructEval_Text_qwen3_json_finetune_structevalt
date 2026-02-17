@@ -31,7 +31,13 @@ def _get_parsers(output_type: str) -> tuple[
         # Best-effort helps when the model appends chatter after a valid YAML block.
         return V.parse_yaml, V.parse_yaml_best_effort, V.is_yaml_only
     if t == "TOML":
-        return V.parse_toml, V.parse_toml_best_effort, V.is_toml_only
+        # TOML is strict. "Best-effort" prefix parsing can mask real syntax errors
+        # (e.g., an unterminated array or inline-table) by truncating the output to
+        # a parseable prefix. That weakens the reward signal and lets invalid TOML
+        # survive GRPO when tasks don't provide ATTRIBUTES.
+        #
+        # Policy: require *strict* parse for TOML rewards.
+        return V.parse_toml, None, V.is_toml_only
     if t == "XML":
         return V.parse_xml, V.parse_xml_best_effort, V.is_xml_only
     if t == "CSV":
@@ -125,7 +131,13 @@ def compute_reward_components(
     # Task-specific constraints example (JSON article_meta)
     # For strict parse failures but best-effort successes, evaluate constraints
     # on extracted JSON.
-    obj_for_checks = obj if ok else (obj_be if ok_be else None)
+    # For strict formats (TOML/XML/CSV), do not allow best-effort parsing to
+    # stand in for correctness in downstream checks (e.g., match_soft). This
+    # prevents invalid outputs from earning reward via a truncated prefix.
+    if t in {"TOML", "XML", "CSV"}:
+        obj_for_checks = obj if ok else None
+    else:
+        obj_for_checks = obj if ok else (obj_be if ok_be else None)
     if t == "JSON" and obj_for_checks is not None:
         checks = V.check_task_constraints_article_meta(obj_for_checks)
         out["title_is_string"] = 1.0 if checks["title_is_string"] else 0.0
