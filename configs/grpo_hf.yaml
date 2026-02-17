@@ -132,7 +132,8 @@ data:
   # Note: legacy env vars (HF_BALANCE_*) still override balance_by_task.*
   # --------------------------------------------------------------
   sampling:
-    mode: balance_by_task
+    #mode: balance_by_task
+    mode: per_output_type
 
     balance_by_task:
       enabled: true
@@ -142,21 +143,21 @@ data:
       min_count: 8       # drop rare task_key groups before balancing
 
     # Example: train on all TOML tasks, and limit other formats.
-    # per_output_type:
-    #   seed: 42
-    #   shuffle: true
-    #   oversample_with_replacement: false
-    #   default_target: null
-    #   targets:
-    #     TOML: all
-    #     JSON: 200
-    #     YAML: 200
-    #     XML: 200
-    #     CSV: 200
+    per_output_type:
+      seed: 42
+      shuffle: true
+      oversample_with_replacement: false
+      default_target: null
+      targets:
+        TOML: all
+        JSON: 100
+        YAML: 200
+        XML: 100
+        CSV: 100
 
   # Optional: append local StructEval-style task JSON arrays AFTER HF balancing & split.
   # Useful when HF datasets lack certain patterns (e.g., TOML inline tables).
-  use_extra_datasets: true
+  use_extra_datasets: false
 
   # List of local dataset files (JSON arrays). Each file is split into train/valid and
   # appended to `data/train_hf_grpo_tasks.json` and `data/valid_hf_grpo_tasks.json`.

@@ -140,6 +140,24 @@ data:
         CSV: 800
 ```
 
+現在の `configs/sft_hf.yaml` / `configs/grpo_hf.yaml` は、
+タスク偏り（特に JSON 優勢による YAML インデント崩れ、TOML の母数不足による文法ミス）を抑える目的で、
+デフォルトを **`mode: per_output_type`** に切り替えている。
+デフォルトの抽出上限は以下（TOML は全件、他形式は上限）:
+
+```yaml
+data:
+  sampling:
+    mode: per_output_type
+    per_output_type:
+      targets:
+        TOML: all
+        JSON: 100
+        YAML: 200
+        XML: 100
+        CSV: 100
+```
+
 `hf_select_subset` は、選択前後の形式別件数を標準出力にレポートする。
 
 ### シャッフル順序について
@@ -162,6 +180,9 @@ Hugging Face のみだとカバーされないパターン（例: **TOML inline 
 
 `configs/sft_hf.yaml` / `configs/grpo_hf.yaml` の `data.use_extra_datasets` を `true` にし、
 `data.extra_datasets` にローカルファイルを配列で指定する。
+
+HF 提供データセットのみで学習する場合は、ルール上「合成データ/データ改変をしない」ため、
+`use_extra_datasets: false` を前提とする（デフォルトも `false`）。
 
 単一ファイルを比率で分割して append（推奨・シンプル）:
 
