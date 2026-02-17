@@ -14,40 +14,24 @@ PYTHONPATH="$(pwd)" python -m src.data.import_hf_structured_sft \
   --filter-invalid \
   --shuffle-seed 42
 
-# Optional: balance by task_key to reduce output-format bias.
-# Default: enabled (set HF_BALANCE_BY_TASK=0 to disable)
-BALANCE_BY_TASK="${HF_BALANCE_BY_TASK:-1}"
-BALANCE_STRATEGY="${HF_BALANCE_STRATEGY:-min}"   # min|max|fixed
-BALANCE_FIXED_N="${HF_BALANCE_FIXED_N:-}"
-BALANCE_SEED="${HF_BALANCE_SEED:-42}"
-BALANCE_MIN_COUNT="${HF_BALANCE_MIN_COUNT:-8}"
-
+# Subset selection (balance by task_key OR per-output-type targets)
+# Config: configs/grpo_hf.yaml -> data.sampling
+PER_DEVICE_BS="${GRPO_PER_DEVICE_TRAIN_BS:-1}"
+GRAD_ACCUM="${GRPO_GRAD_ACCUM:-8}"
+MAX_STEPS="${GRPO_MAX_STEPS:-100}"
 GRPO_INPUT_JSON="data/hf_grpo_tasks.json"
-if [ "${BALANCE_BY_TASK}" != "0" ]; then
-  echo "INFO  Balancing GRPO tasks by task_key (strategy=${BALANCE_STRATEGY}) ..."
-  # Step estimate context comes from configs/grpo_hf.yaml.
-  PER_DEVICE_BS="${GRPO_PER_DEVICE_TRAIN_BS:-2}"
-  GRAD_ACCUM="${GRPO_GRAD_ACCUM:-8}"
-  MAX_STEPS="${GRPO_MAX_STEPS:-100}"
-  FIXED_ARG=()
-  if [ "${BALANCE_STRATEGY}" = "fixed" ] && [ -n "${BALANCE_FIXED_N}" ]; then
-    FIXED_ARG=(--fixed-n "${BALANCE_FIXED_N}")
-  fi
-  PYTHONPATH="$(pwd)" python -m src.data.balance_by_task \
-    --input "${GRPO_INPUT_JSON}" \
-    --input-format json \
-    --output data/hf_grpo_tasks_balanced.json \
-    --strategy "${BALANCE_STRATEGY}" \
-    --seed "${BALANCE_SEED}" \
-    --min-count "${BALANCE_MIN_COUNT}" \
-    --per-device-train-batch-size "${PER_DEVICE_BS}" \
-    --grad-accum "${GRAD_ACCUM}" \
-    --max-steps "${MAX_STEPS}" \
-    "${FIXED_ARG[@]}"
-  GRPO_INPUT_JSON="data/hf_grpo_tasks_balanced.json"
-else
-  echo "INFO  HF_BALANCE_BY_TASK=0 -> using unbalanced GRPO tasks."
-fi
+PYTHONPATH="$(pwd)" python -m src.data.hf_select_subset \
+  --stage grpo \
+  --config configs/grpo_hf.yaml \
+  --input "${GRPO_INPUT_JSON}" \
+  --input-format json \
+  --output data/hf_grpo_tasks_selected.json \
+  --output-format json \
+  --per-device-train-batch-size "${PER_DEVICE_BS}" \
+  --grad-accum "${GRAD_ACCUM}" \
+  --max-steps "${MAX_STEPS}"
+
+GRPO_INPUT_JSON="data/hf_grpo_tasks_selected.json"
 
 PYTHONPATH="$(pwd)" python -m src.data.prepare_structeval_split \
   --in-json "${GRPO_INPUT_JSON}" \
