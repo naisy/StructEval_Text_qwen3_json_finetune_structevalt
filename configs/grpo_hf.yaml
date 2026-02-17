@@ -120,6 +120,40 @@ reward:
 
 data:
   dataset_config: configs/dataset_hf_grpo.yaml
+
+  # --------------------------------------------------------------
+  # HF subset selection (NO data modification; selection only)
+  #
+  # mode:
+  #   - balance_by_task: equalize by task_key (default)
+  #   - per_output_type: choose counts per output format (e.g., TOML=all)
+  #   - none: use the imported HF tasks as-is
+  #
+  # Note: legacy env vars (HF_BALANCE_*) still override balance_by_task.*
+  # --------------------------------------------------------------
+  sampling:
+    mode: balance_by_task
+
+    balance_by_task:
+      enabled: true
+      strategy: min      # min|max|fixed
+      fixed_n: null      # used when strategy=fixed
+      seed: 42
+      min_count: 8       # drop rare task_key groups before balancing
+
+    # Example: train on all TOML tasks, and limit other formats.
+    # per_output_type:
+    #   seed: 42
+    #   shuffle: true
+    #   oversample_with_replacement: false
+    #   default_target: null
+    #   targets:
+    #     TOML: all
+    #     JSON: 200
+    #     YAML: 200
+    #     XML: 200
+    #     CSV: 200
+
   # Optional: append local StructEval-style task JSON arrays AFTER HF balancing & split.
   # Useful when HF datasets lack certain patterns (e.g., TOML inline tables).
   use_extra_datasets: true
