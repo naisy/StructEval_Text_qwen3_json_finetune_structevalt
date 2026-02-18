@@ -123,7 +123,29 @@ def _norm_task_family(x: Any) -> str:
     if not isinstance(x, str):
         return "other"
     s = x.strip().lower()
-    return s if s else "other"
+    if not s:
+        return "other"
+
+    # Accept common aliases / spelling variations.
+    # NOTE: task_family is authored by our import scripts, but config files
+    # are hand-written and may use the original HF org/name style.
+    #
+    # Examples we want to treat as the same family:
+    #   - u10bei
+    #   - u-10bei
+    #   - u_10bei
+    s_compact = "".join(ch for ch in s if ch.isalnum())
+    if s_compact in {"u10bei", "u010bei"} or s_compact.startswith("u10bei"):
+        return "u10bei"
+    if s_compact.startswith("daichira"):
+        return "daichira"
+    if s_compact in {"hf"}:
+        return "hf"
+    if s_compact in {"other"}:
+        return "other"
+
+    # Unknown family: keep a sanitized token for grouping.
+    return s_compact or "other"
 
 
 def _group_by_family_and_output_type(items: List[Dict[str, Any]]) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
@@ -170,8 +192,12 @@ def _sample_per_family_output_type(
     fam_used: Dict[str, Dict[str, int]] = {}
     sampled_all: List[Dict[str, Any]] = []
 
-    fam_cfg_map = family_cfg.get("families") if isinstance(family_cfg.get("families"), dict) else {}
-    other_key = str(family_cfg.get("default_family", "other")).strip().lower() or "other"
+    fam_cfg_map_raw = family_cfg.get("families") if isinstance(family_cfg.get("families"), dict) else {}
+    # Normalize config keys to match _norm_task_family().
+    fam_cfg_map: Dict[str, Any] = {
+        _norm_task_family(k): v for k, v in fam_cfg_map_raw.items()
+    }
+    other_key = _norm_task_family(str(family_cfg.get("default_family", "other")))
 
     for fam in sorted(fam_groups.keys()):
         pool_by_ot = fam_groups[fam]

@@ -151,6 +151,9 @@ data:
 - 各 family 配下の `targets` は **上書き**（未指定は上位 targets/default_target が適用される）
 - `task_family` が無い例（追加ローカルデータ等）は `default_family` にフォールバック（既定: `other`）
 
+補足: `task_family` のキーは、設定側で `u10bei` / `u-10bei` / `u_10bei` のように表記揺れしても
+同一扱いになるよう正規化される（`u10bei` に統一）。
+
 例（差分学習で「u-10bei の TOML だけ all」にする）:
 
 ```yaml
