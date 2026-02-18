@@ -55,12 +55,24 @@ PYTHONPATH="$(pwd)" python -m src.data.append_extra_datasets \
   --train data/train_hf_sft.jsonl \
   --valid data/valid_hf_sft.jsonl
 
-# Ensure StructEval-T multi-format eval tasks exist for post-training evaluation.
-# (If you prefer offline / no-download runs, you can provide EVAL_TASKS_PATH or
-# rely on the built-in mock fallback.)
-if [ ! -f data/structeval_text_all.json ]; then
-  echo "INFO  Downloading StructEval-T eval tasks (JSON/YAML/TOML/XML/CSV) to data/structeval_text_all.json ..."
-  bash scripts/download_structeval_text_all.sh test data/structeval_text_all.json "JSON,YAML,TOML,XML,CSV"
+# Ensure StructEval-T multi-format eval tasks exist ONLY when post-train eval is enabled.
+#
+# Hugging Face training itself does not require StructEval-T tasks. Downloading them
+# here is wasted work if you are not running post-training evaluation.
+NEED_POST_EVAL="$(python - <<'PY'
+import yaml
+cfg = yaml.safe_load(open('configs/sft_hf.yaml', 'r', encoding='utf-8'))
+print('1' if bool(((cfg.get('eval') or {}).get('run_eval_after_train', False))) else '0')
+PY
+)"
+
+if [ "${NEED_POST_EVAL}" = "1" ]; then
+  if [ ! -f data/structeval_text_all.json ]; then
+    echo "INFO  Downloading StructEval-T eval tasks (JSON/YAML/TOML/XML/CSV) to data/structeval_text_all.json ..."
+    bash scripts/download_structeval_text_all.sh test data/structeval_text_all.json "JSON,YAML,TOML,XML,CSV"
+  fi
+else
+  echo "INFO  Post-train eval disabled (configs/sft_hf.yaml: eval.run_eval_after_train=false). Skip StructEval-T download."
 fi
 
 PYTHONPATH="$(pwd)" python train.py sft --config configs/sft_hf.yaml

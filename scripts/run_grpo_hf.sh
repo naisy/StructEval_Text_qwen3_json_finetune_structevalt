@@ -57,10 +57,23 @@ PYTHONPATH="$(pwd)" python -m src.data.append_extra_datasets \
   --train data/train_hf_grpo_tasks.json \
   --valid data/valid_hf_grpo_tasks.json
 
-# Ensure StructEval-T multi-format eval tasks exist for post-training evaluation.
-if [ ! -f data/structeval_text_all.json ]; then
-  echo "INFO  Downloading StructEval-T eval tasks (JSON/YAML/TOML/XML/CSV) to data/structeval_text_all.json ..."
-  bash scripts/download_structeval_text_all.sh test data/structeval_text_all.json "JSON,YAML,TOML,XML,CSV"
+# Ensure StructEval-T multi-format eval tasks exist ONLY when post-train eval is enabled.
+#
+# Hugging Face GRPO training itself does not require StructEval-T tasks.
+NEED_POST_EVAL="$(python - <<'PY'
+import yaml
+cfg = yaml.safe_load(open('configs/grpo_hf.yaml', 'r', encoding='utf-8'))
+print('1' if bool(((cfg.get('eval') or {}).get('run_eval_after_train', False))) else '0')
+PY
+)"
+
+if [ "${NEED_POST_EVAL}" = "1" ]; then
+  if [ ! -f data/structeval_text_all.json ]; then
+    echo "INFO  Downloading StructEval-T eval tasks (JSON/YAML/TOML/XML/CSV) to data/structeval_text_all.json ..."
+    bash scripts/download_structeval_text_all.sh test data/structeval_text_all.json "JSON,YAML,TOML,XML,CSV"
+  fi
+else
+  echo "INFO  Post-train eval disabled (configs/grpo_hf.yaml: eval.run_eval_after_train=false). Skip StructEval-T download."
 fi
 
 PYTHONPATH="$(pwd)" python train.py grpo --config configs/grpo_hf.yaml
