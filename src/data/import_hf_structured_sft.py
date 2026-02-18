@@ -336,6 +336,49 @@ def build_query_text(dataset_name: str, sys_msg: str | None, user_msg: str) -> s
     return u
 
 
+def append_metadata_supplement(query_text: str, *, tmeta: dict, output_type: str | None) -> str:
+    """Append a human-readable metadata block to the query.
+
+    Why:
+    - Some HF examples (notably u-10bei generation tasks) have very short/ambiguous
+      user prompts (e.g. "Produce a TOML document for an api specification.").
+    - The disambiguating information often exists only in metadata fields
+      (schema/type/complexity). If it never appears in the prompt, SFT cannot learn
+      to condition on it.
+
+    Policy:
+    - Append a clearly marked *supplementary* block in English.
+    - The block explicitly instructs the model not to copy it into the output.
+    - Only include keys when they exist.
+    """
+    if not isinstance(query_text, str) or not query_text.strip():
+        return query_text
+
+    lines: list[str] = []
+    fmt = (output_type or tmeta.get("output_type") or tmeta.get("format") or "").strip()
+    if fmt:
+        lines.append(f"FORMAT: {fmt}")
+    if isinstance(tmeta.get("task_kind"), str) and tmeta["task_kind"].strip():
+        lines.append(f"TASK_KIND: {tmeta['task_kind'].strip()}")
+    if isinstance(tmeta.get("task_schema"), str) and tmeta["task_schema"].strip():
+        lines.append(f"SCHEMA: {tmeta['task_schema'].strip()}")
+    if isinstance(tmeta.get("complexity"), str) and tmeta["complexity"].strip():
+        lines.append(f"COMPLEXITY: {tmeta['complexity'].strip()}")
+    if isinstance(tmeta.get("task_family"), str) and tmeta["task_family"].strip():
+        lines.append(f"TASK_FAMILY: {tmeta['task_family'].strip()}")
+    if isinstance(tmeta.get("task_key"), str) and tmeta["task_key"].strip():
+        lines.append(f"TASK_KEY: {tmeta['task_key'].strip()}")
+
+    if not lines:
+        return query_text.strip()
+
+    block = (
+        "Supplementary metadata (for disambiguation only; do NOT include this block in your output):\n"
+        + "\n".join(lines)
+    )
+    return f"{query_text.strip()}\n\n---\n{block}".strip()
+
+
 _ATTR_BLOCK_RE = re.compile(r"\bATTRIBUTES\s*:\s*(.*)", re.IGNORECASE)
 
 
@@ -489,12 +532,16 @@ def main() -> None:
             if not user_msg:
                 continue
 
-            query_text = build_query_text(name, sys_msg, user_msg)
+            base_query_text = build_query_text(name, sys_msg, user_msg)
             out_type = _infer_output_type(ex)
 
             # Keep lightweight task classification fields to enable later
             # balancing/reporting WITHOUT re-downloading HF datasets.
             tmeta = _task_meta(name, ex, user_msg=user_msg, output_type=out_type)
+
+            # Append a clearly-marked metadata supplement to disambiguate
+            # short prompts (common in generation tasks).
+            query_text = append_metadata_supplement(base_query_text, tmeta=tmeta, output_type=out_type)
 
             out_text = _extract_reference_output(ex, asst_msg, out_type)
             if not out_text:
