@@ -117,8 +117,9 @@ data:
               CSV: 0
 
   # Optional: append local JSONL datasets AFTER HF balancing & split.
-  # Keep this OFF by default for easy A/B experiments.
-  use_extra_datasets: true
+  # Keep this OFF by default.
+  # NOTE: When using official HF datasets, do NOT mix in synthetic/local datasets.
+  use_extra_datasets: false
 
   # List of local dataset files (JSONL). Each file is split into train/valid and
   # appended to `data/train_hf_sft.jsonl` and `data/valid_hf_sft.jsonl`.
@@ -137,7 +138,8 @@ data:
   #     a.b.c = ... dotted-key assignments
   # - Use 2 to keep "2+ layers" and 3 for "3+ layers".
   extra_filters:
-    toml_min_depth: 2
+    # null => disable depth filtering
+    toml_min_depth: null
 
 eval:
   # quick validation after SFT

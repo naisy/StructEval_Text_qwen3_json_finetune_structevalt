@@ -16,6 +16,9 @@ TOML の深い階層（dotted tables / dotted keys）を重点的に入れるこ
 `use_extra_datasets` で追加するローカルデータセットのみを対象に、
 TOML の階層深さでフィルタできるようにする。
 
+> 注意: このフィルタは **append 時に通すだけ** で、
+> `data/my_sft_dataset.jsonl` 自体を書き換えたり、設定を「移し替える」ことはしない。
+
 
 ## 対象とする「深い階層」の定義
 
@@ -41,8 +44,11 @@ data:
     - data/my_sft_dataset.jsonl
 
   extra_filters:
-    toml_min_depth: 3   # 2 または 3 を想定（null で無効）
+    toml_min_depth: 3   # 2 または 3 を想定（null/未設定で無効）
 ```
+
+- `data.use_extra_datasets=false` の場合は、追加データセット自体が読み込まれない（=フィルタも実行されない）。
+- `data.extra_filters.toml_min_depth=null`（またはキー未設定）の場合は、深さフィルタは無効。
 
 `configs/grpo_hf.yaml` にも同名キーを持たせるが、現状は **stage=sft のときのみ適用**される。
 
@@ -54,3 +60,4 @@ data:
 - `src/data/append_extra_datasets.py`
   - `data.extra_filters.toml_min_depth` が設定されている場合、
     `output_type == "TOML"` の追加データのみ depth>=toml_min_depth を満たすものを残す
+  - フィルタは `data/train_hf_sft.jsonl` / `data/valid_hf_sft.jsonl` に append する直前に適用される
