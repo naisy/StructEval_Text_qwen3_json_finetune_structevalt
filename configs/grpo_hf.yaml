@@ -155,6 +155,25 @@ data:
         XML: 100
         CSV: 100
 
+      # Optional: split per-format targets by HF family (u10bei / daichira / other).
+      # by_task_family:
+      #   enabled: true
+      #   default_family: other
+      #   families:
+      #     u10bei:
+      #       targets:
+      #         TOML: all
+      #         JSON: 0
+      #         YAML: 0
+      #         XML: 0
+      #         CSV: 0
+      #     daichira:
+      #       targets:
+      #         TOML: 0
+      #     other:
+      #       targets:
+      #         TOML: 0
+
   # Optional: append local StructEval-style task JSON arrays AFTER HF balancing & split.
   # Useful when HF datasets lack certain patterns (e.g., TOML inline tables).
   use_extra_datasets: false

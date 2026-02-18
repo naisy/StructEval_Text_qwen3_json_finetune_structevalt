@@ -36,6 +36,18 @@ data:
         TOML: all            # or an integer
         JSON: 1000
 
+      # Optional: split targets by HF family (task_family)
+      by_task_family:
+        enabled: false
+        default_family: other
+        families:
+          u10bei:
+            targets: {TOML: all}
+          daichira:
+            targets: {TOML: 0}
+          other:
+            targets: {TOML: 0}
+
 Env overrides (backward compatible)
 - HF_BALANCE_BY_TASK, HF_BALANCE_STRATEGY, HF_BALANCE_FIXED_N, HF_BALANCE_SEED, HF_BALANCE_MIN_COUNT
 """
@@ -104,6 +116,111 @@ def _group_by_output_type(items: List[Dict[str, Any]]) -> Dict[str, List[Dict[st
                     ot = _norm_output_type(parts[1])
         groups[ot].append(ex)
     return groups
+
+
+
+def _norm_task_family(x: Any) -> str:
+    if not isinstance(x, str):
+        return "other"
+    s = x.strip().lower()
+    return s if s else "other"
+
+
+def _group_by_family_and_output_type(items: List[Dict[str, Any]]) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
+    """Group items by task_family then output_type.
+
+    task_family is produced by `import_hf_structured_sft.py`:
+      - u10bei / daichira / hf
+    If missing, we treat it as 'other' (e.g., extra local datasets).
+    """
+    fam_groups: Dict[str, Dict[str, List[Dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+    for ex in items:
+        fam = _norm_task_family(ex.get("task_family"))
+        ot = _norm_output_type(ex.get("output_type"))
+        # Fallback: infer from task_key if available ("...|TOML|...")
+        if ot == "UNKNOWN":
+            tk = ex.get("task_key")
+            if isinstance(tk, str) and "|" in tk:
+                parts = [p.strip() for p in tk.split("|")]
+                if len(parts) >= 2:
+                    ot = _norm_output_type(parts[1])
+        fam_groups[fam][ot].append(ex)
+    return fam_groups
+
+
+def _sample_per_family_output_type(
+    items: List[Dict[str, Any]],
+    *,
+    family_cfg: Dict[str, Any],
+    global_targets: Dict[str, Any],
+    global_default_target: Any,
+    seed: int,
+    shuffle: bool,
+    oversample_with_replacement: bool,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, int]]]:
+    """Sample per task_family, then per output_type within each family.
+
+    Returns:
+      - sampled items
+      - used counts as {family: {OUTPUT_TYPE: n}}
+    """
+    rng = random.Random(seed)
+    fam_groups = _group_by_family_and_output_type(items)
+
+    fam_used: Dict[str, Dict[str, int]] = {}
+    sampled_all: List[Dict[str, Any]] = []
+
+    fam_cfg_map = family_cfg.get("families") if isinstance(family_cfg.get("families"), dict) else {}
+    other_key = str(family_cfg.get("default_family", "other")).strip().lower() or "other"
+
+    for fam in sorted(fam_groups.keys()):
+        pool_by_ot = fam_groups[fam]
+
+        fc = fam_cfg_map.get(fam)
+        if fc is None and other_key in fam_cfg_map:
+            fc = fam_cfg_map.get(other_key)
+        if not isinstance(fc, dict):
+            fc = {}
+
+        ft = fc.get("targets") if isinstance(fc.get("targets"), dict) else {}
+        ft_norm = {str(k).strip().upper(): v for k, v in ft.items()}
+        fam_targets = dict(global_targets)
+        fam_targets.update(ft_norm)
+
+        fam_default = fc.get("default_target", global_default_target)
+
+        fam_items: List[Dict[str, Any]] = []
+        for xs in pool_by_ot.values():
+            fam_items.extend(xs)
+
+        selected, used = _sample_per_output_type(
+            fam_items,
+            targets=fam_targets,
+            default_target=fam_default,
+            seed=rng.randint(0, 2**31 - 1),
+            shuffle=False,
+            oversample_with_replacement=oversample_with_replacement,
+        )
+        rng.shuffle(selected)
+        sampled_all.extend(selected)
+        fam_used[fam] = used
+
+    if shuffle:
+        rng.shuffle(sampled_all)
+    return sampled_all, fam_used
+
+
+def _print_family_output_type_report(items: List[Dict[str, Any]], *, label: str) -> None:
+    fam_groups = _group_by_family_and_output_type(items)
+    total = sum(len(xs) for by_ot in fam_groups.values() for xs in by_ot.values())
+    print(f"[{label}] total_examples={total} (by task_family x output_type)")
+    for fam in sorted(fam_groups.keys()):
+        cnt = {ot: len(xs) for ot, xs in fam_groups[fam].items()}
+        fam_total = sum(cnt.values())
+        print(
+            f"[{label}] family={fam} total={fam_total} "
+            + json.dumps({k: cnt[k] for k in sorted(cnt)}, ensure_ascii=False)
+        )
 
 
 def _parse_target(v: Any) -> Tuple[str, int | None]:
@@ -274,22 +391,45 @@ def main() -> int:
         shuffle = bool(pcfg.get("shuffle", True))
         oversample = bool(pcfg.get("oversample_with_replacement", False))
         default_target = pcfg.get("default_target", None)
+
+        # Base per-format targets (legacy behavior)
         targets = pcfg.get("targets") if isinstance(pcfg.get("targets"), dict) else {}
-        # Normalize keys to upper.
         targets_norm = {str(k).strip().upper(): v for k, v in targets.items()}
 
-        selected, used = _sample_per_output_type(
-            items,
-            targets=targets_norm,
-            default_target=default_target,
-            seed=seed,
-            shuffle=shuffle,
-            oversample_with_replacement=oversample,
-        )
-        print(
-            f"INFO  sampling.mode=per_output_type seed={seed} shuffle={int(shuffle)} oversample_with_replacement={int(oversample)} -> selected={len(selected)}"
-        )
-        print("INFO  per_output_type used_counts=" + json.dumps(used, ensure_ascii=False))
+        # Optional: split targets by HF family (u10bei / daichira / other).
+        # This is useful when a problematic pattern exists only in one family
+        # (e.g., deep nested TOML tasks in u-10bei, not in daichira).
+        by_fam = pcfg.get("by_task_family") if isinstance(pcfg.get("by_task_family"), dict) else {}
+        by_fam_enabled = bool(by_fam.get("enabled", False))
+
+        if by_fam_enabled:
+            selected, fam_used = _sample_per_family_output_type(
+                items,
+                family_cfg=by_fam,
+                global_targets=targets_norm,
+                global_default_target=default_target,
+                seed=seed,
+                shuffle=shuffle,
+                oversample_with_replacement=oversample,
+            )
+            print(
+                f"INFO  sampling.mode=per_output_type(by_task_family=1) seed={seed} shuffle={int(shuffle)} oversample_with_replacement={int(oversample)} -> selected={len(selected)}"
+            )
+            print("INFO  per_output_type used_counts_by_family=" + json.dumps(fam_used, ensure_ascii=False))
+        else:
+            selected, used = _sample_per_output_type(
+                items,
+                targets=targets_norm,
+                default_target=default_target,
+                seed=seed,
+                shuffle=shuffle,
+                oversample_with_replacement=oversample,
+            )
+            print(
+                f"INFO  sampling.mode=per_output_type seed={seed} shuffle={int(shuffle)} oversample_with_replacement={int(oversample)} -> selected={len(selected)}"
+            )
+            print("INFO  per_output_type used_counts=" + json.dumps(used, ensure_ascii=False))
+
 
     else:
         raise SystemExit(f"Unknown sampling.mode: {mode}")

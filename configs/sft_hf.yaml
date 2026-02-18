@@ -83,6 +83,27 @@ data:
         XML: 100
         CSV: 100
 
+      # Optional: split per-format targets by HF family.
+      # Useful when only one family contains a hard pattern (e.g., deep-nested TOML in u-10bei).
+      #
+      # by_task_family:
+      #   enabled: true
+      #   default_family: other   # used when task_family is missing or not listed below
+      #   families:
+      #     u10bei:
+      #       targets:
+      #         TOML: all
+      #         JSON: 0
+      #         YAML: 0
+      #         XML: 0
+      #         CSV: 0
+      #     daichira:
+      #       targets:
+      #         TOML: 0
+      #     other:
+      #       targets:
+      #         TOML: 0
+
   # Optional: append local JSONL datasets AFTER HF balancing & split.
   # Keep this OFF by default for easy A/B experiments.
   use_extra_datasets: false
