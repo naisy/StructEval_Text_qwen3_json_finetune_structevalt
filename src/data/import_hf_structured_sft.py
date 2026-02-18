@@ -22,6 +22,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from src.data import validators as V
 from src.data.hf_dataset_cleaning import decide_keep_example
+from src.data.toml_jsonlike import convert_json_payload_to_toml, looks_like_json_payload
 from src.utils.logging import info, warn
 
 
@@ -508,6 +509,14 @@ def main() -> None:
             # TOML outputs are normalized to a deterministic canonical form.
             # This prevents mixing incompatible TOML styles across HF sources (e.g., u-10bei vs daichira).
             if out_type and _normalize_output_type(out_type) == "TOML":
+                # Some HF examples (observed in u-10bei/*) label outputs as TOML
+                # but contain a JSON object/array payload. Convert those to TOML
+                # *before* canonicalization so they do not poison the style.
+                if looks_like_json_payload(out_text):
+                    ok_j2t, toml_text, _err_j2t = convert_json_payload_to_toml(out_text)
+                    if ok_j2t and toml_text.strip():
+                        out_text = toml_text
+
                 ok_c, _already, canon, _err = V.canonicalize_toml_text(out_text)
                 if ok_c and canon.strip():
                     out_text = canon
