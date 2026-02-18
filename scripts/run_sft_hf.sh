@@ -13,6 +13,42 @@ PYTHONPATH="$(pwd)" python -m src.data.import_hf_structured_sft \
   --filter-invalid \
   --shuffle-seed 42
 
+# --------------------------------------------------------------
+# Optional: extract rare "deep TOML" examples from HF data into a local JSONL,
+# so they can be appended AFTER HF balancing.
+#
+# Enabled via configs/sft_hf.yaml:
+#   data.use_extra_datasets: true
+#   data.extra_datasets: [data/my_sft_dataset.jsonl]
+#   data.extra_filters.toml_min_depth: 2 (or 3)
+#
+# If the output file already exists, this step is skipped.
+# --------------------------------------------------------------
+DEEP_TOML_MIN_DEPTH="$(python - <<'PY'
+import yaml
+cfg=yaml.safe_load(open('configs/sft_hf.yaml','r',encoding='utf-8'))
+data=(cfg.get('data') or {})
+use=bool(data.get('use_extra_datasets', False))
+extras=data.get('extra_datasets') or []
+filters=(data.get('extra_filters') or {})
+tmd=filters.get('toml_min_depth', None)
+want=False
+if use and isinstance(extras, list):
+    want = any(isinstance(e,str) and e.strip()=='data/my_sft_dataset.jsonl' for e in extras)
+if not want or tmd is None:
+    print('')
+else:
+    print(int(tmd))
+PY
+)"
+
+if [ -n "${DEEP_TOML_MIN_DEPTH}" ] && [ ! -f data/my_sft_dataset.jsonl ]; then
+  PYTHONPATH="$(pwd)" python -m src.data.extract_deep_toml_from_sft_jsonl \
+    --input data/hf_sft.jsonl \
+    --output data/my_sft_dataset.jsonl \
+    --min-depth "${DEEP_TOML_MIN_DEPTH}"
+fi
+
 # Subset selection (balance by task_key OR per-output-type targets)
 # Config: configs/sft_hf.yaml -> data.sampling
 PER_DEVICE_BS="${SFT_PER_DEVICE_TRAIN_BS:-2}"
