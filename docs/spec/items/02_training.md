@@ -140,6 +140,50 @@ data:
         CSV: 800
 ```
 
+
+##### per_output_type を task_family で分離する（u10bei / daichira / other）
+
+`task_family` ごとに「同じ形式でも母数や難しさが違う」ケースがあるため、
+`per_output_type` の targets を **family 別に分けて指定**できる。
+
+- `data.sampling.per_output_type.by_task_family.enabled: true` で有効化
+- `families` に `u10bei` / `daichira` / `other` などを列挙
+- 各 family 配下の `targets` は **上書き**（未指定は上位 targets/default_target が適用される）
+- `task_family` が無い例（追加ローカルデータ等）は `default_family` にフォールバック（既定: `other`）
+
+例（差分学習で「u-10bei の TOML だけ all」にする）:
+
+```yaml
+data:
+  sampling:
+    mode: per_output_type
+    per_output_type:
+      targets:
+        # 上位 default（未指定 family にも効く）
+        TOML: 0
+        JSON: 0
+        YAML: 0
+        XML: 0
+        CSV: 0
+
+      by_task_family:
+        enabled: true
+        default_family: other
+        families:
+          u10bei:
+            targets:
+              TOML: all
+          daichira:
+            targets:
+              TOML: 0
+          other:
+            targets:
+              TOML: 0
+```
+
+この指定により、`TOML: all` を **u10bei のみ**に限定できる。
+（deep 階層 TOML が u10bei に偏っている場合の対策）
+
 現在の `configs/sft_hf.yaml` / `configs/grpo_hf.yaml` は、
 タスク偏り（特に JSON 優勢による YAML インデント崩れ、TOML の母数不足による文法ミス）を抑える目的で、
 デフォルトを **`mode: per_output_type`** に切り替えている。
