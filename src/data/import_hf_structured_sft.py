@@ -16,6 +16,7 @@ This script does NOT generate any synthetic data. It only converts existing data
 
 import argparse
 import json
+import hashlib
 import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -456,7 +457,23 @@ def main() -> None:
     filtered_invalid_by_type: dict[str, int] = {}
     filtered_invalid_by_reason: dict[str, int] = {}
 
-    task_id = 1
+    def _stable_task_id(*, query: str, output_type: str, reference_output: str) -> str:
+        """Build a deterministic task_id for GRPO/eval tasks.
+
+        Why:
+        - Old behavior used sequential IDs (hf_00000001, ...), which vary across runs
+          depending on dataset order / shuffling.
+        - Some downstream caches and reports key on task_id; non-determinism can cause
+          unintended duplication.
+
+        Policy:
+        - task_id is an md5 hash of the *task content* (output_type + query + reference_output).
+        - Identical tasks across runs => identical task_id.
+        """
+        base = f"{output_type}\n{query}\n{reference_output}".encode("utf-8")
+        h = hashlib.md5(base).hexdigest()
+        return f"hf_{h}"
+
     for name in args.datasets:
         info(f"[import_hf_structured_sft] Loading {name} split={args.split}...")
         ds = list(load_hf(name, args.split))
@@ -540,7 +557,11 @@ def main() -> None:
                 attrs = extract_attributes_from_prompt(user_msg)
                 grpo_tasks.append(
                     {
-                        "task_id": f"hf_{task_id:08d}",
+                        "task_id": _stable_task_id(
+                            query=query_text,
+                            output_type=(out_type or "JSON"),
+                            reference_output=out_text,
+                        ),
                         "query": query_text,
                         **tmeta,
                         "feature_requirements": "",
@@ -556,7 +577,7 @@ def main() -> None:
                         "rendering": False,
                     }
                 )
-                task_id += 1
+
 
     info(f"[import_hf_structured_sft] Writing SFT JSONL: {sft_out} rows={len(sft_rows)}")
     if args.filter_invalid and filtered_invalid:
