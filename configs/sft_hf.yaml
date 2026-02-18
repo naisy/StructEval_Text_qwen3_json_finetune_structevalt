@@ -7,9 +7,13 @@ model:
 
 lora:
   enabled: true
-  r: 1
-  alpha: 2
+  r: 64
+  alpha: 128
   dropout: 0.05
+  # YAML/TOMLの 表記ミス が主問題なら：MLPのみに絞る実験
+  #target_modules: ["gate_proj","up_proj","down_proj"]
+  # 逆に 抽出/変換での取り違え が主問題なら：Attentionのみに絞る実験
+  #target_modules: ["q_proj","k_proj","v_proj","o_proj"]
   target_modules: auto  # "auto" uses a heuristic list in src/models/lora.py
 
 training:
@@ -32,7 +36,7 @@ training:
   per_device_eval_batch_size: 2
   gradient_accumulation_steps: 8
   num_train_epochs: 2
-  learning_rate: 5.25e-5
+  learning_rate: 5.0e-5
   warmup_ratio: 0.05
   weight_decay: 0.0
   logging_steps: 10
@@ -60,8 +64,8 @@ data:
   # Note: legacy env vars (HF_BALANCE_*) still override balance_by_task.*
   # --------------------------------------------------------------
   sampling:
-    #mode: balance_by_task
-    mode: per_output_type
+    mode: balance_by_task
+    #mode: per_output_type
 
     balance_by_task:
       enabled: true
@@ -77,32 +81,40 @@ data:
       oversample_with_replacement: false
       default_target: null   # null => keep all for unspecified formats
       targets:
-        TOML: all
-        JSON: 100
-        YAML: 200
-        XML: 100
-        CSV: 100
+        TOML: 0
+        JSON: 0
+        YAML: 0
+        XML: 0
+        CSV: 0
 
       # Optional: split per-format targets by HF family.
       # Useful when only one family contains a hard pattern (e.g., deep-nested TOML in u-10bei).
       #
-      # by_task_family:
-      #   enabled: true
-      #   default_family: other   # used when task_family is missing or not listed below
-      #   families:
-      #     u10bei:
-      #       targets:
-      #         TOML: all
-      #         JSON: 0
-      #         YAML: 0
-      #         XML: 0
-      #         CSV: 0
-      #     daichira:
-      #       targets:
-      #         TOML: 0
-      #     other:
-      #       targets:
-      #         TOML: 0
+      by_task_family:
+        enabled: true
+        default_family: other   # used when task_family is missing or not listed below
+        families:
+          u10bei:
+            targets:
+              TOML: 200
+              JSON: 100
+              YAML: 100
+              XML: 100
+              CSV: 100
+          daichira:
+            targets:
+              TOML: 0
+              JSON: 0
+              YAML: 0
+              XML: 0
+              CSV: 0
+          other:
+            targets:
+              TOML: 0
+              JSON: 0
+              YAML: 0
+              XML: 0
+              CSV: 0
 
   # Optional: append local JSONL datasets AFTER HF balancing & split.
   # Keep this OFF by default for easy A/B experiments.

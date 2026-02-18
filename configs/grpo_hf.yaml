@@ -15,7 +15,7 @@ lora:
 
 training:
   output_dir: outputs/grpo
-  seed: 42
+  seed: 55
   max_prompt_len: 1536
   max_completion_len: 512
 
@@ -25,7 +25,7 @@ training:
 
   per_device_train_batch_size: 1
   gradient_accumulation_steps: 8
-  learning_rate: 5.25e-5
+  learning_rate: 5.0e-5
   warmup_ratio: 0.03
   logging_steps: 10
   save_steps: 50
@@ -139,40 +139,40 @@ data:
       enabled: true
       strategy: min      # min|max|fixed
       fixed_n: null      # used when strategy=fixed
-      seed: 42
+      seed: 55
       min_count: 8       # drop rare task_key groups before balancing
 
     # Example: train on all TOML tasks, and limit other formats.
     per_output_type:
-      seed: 42
+      seed: 55
       shuffle: true
       oversample_with_replacement: false
       default_target: null
       targets:
-        TOML: all
-        JSON: 100
-        YAML: 200
-        XML: 100
-        CSV: 100
+        TOML: 0
+        JSON: 0
+        YAML: 0
+        XML: 0
+        CSV: 0
 
       # Optional: split per-format targets by HF family (u10bei / daichira / other).
-      # by_task_family:
-      #   enabled: true
-      #   default_family: other
-      #   families:
-      #     u10bei:
-      #       targets:
-      #         TOML: all
-      #         JSON: 0
-      #         YAML: 0
-      #         XML: 0
-      #         CSV: 0
-      #     daichira:
-      #       targets:
-      #         TOML: 0
-      #     other:
-      #       targets:
-      #         TOML: 0
+      by_task_family:
+        enabled: true
+        default_family: other
+        families:
+          u10bei:
+            targets:
+              TOML: 100
+              JSON: 10
+              YAML: 10
+              XML: 10
+              CSV: 10
+          daichira:
+            targets:
+              TOML: 0
+          other:
+            targets:
+              TOML: 0
 
   # Optional: append local StructEval-style task JSON arrays AFTER HF balancing & split.
   # Useful when HF datasets lack certain patterns (e.g., TOML inline tables).
@@ -185,7 +185,7 @@ data:
 
   extra_split:
     valid_ratio: 0.1
-    seed: 42
+    seed: 55
 
 eval:
   run_eval_after_train: false
