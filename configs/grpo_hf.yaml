@@ -187,6 +187,10 @@ data:
     valid_ratio: 0.1
     seed: 55
 
+  # Optional: keep config parity with SFT. (Currently only applied for stage=sft.)
+  extra_filters:
+    toml_min_depth: null
+
 eval:
   run_eval_after_train: false
   eval_config: configs/eval.yaml

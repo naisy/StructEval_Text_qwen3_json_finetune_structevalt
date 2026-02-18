@@ -63,6 +63,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from src.data.dataset import load_dataset_any
+from src.data.toml_depth_check import is_toml_deep
 from src.utils.io import load_yaml
 from src.utils.logging import info, warn
 
@@ -269,6 +270,21 @@ def append_extra_datasets(
     appended_total = 0
     entry_reports: List[Dict[str, Any]] = []
 
+    # Optional: filter extra datasets by TOML nesting depth.
+    # This is intended for "my_sft_dataset.jsonl" style injectors that contain
+    # deep-nesting patterns you want to force-learn (e.g., [a.b.c], [[a.b.c]], a.b.c=...).
+    toml_min_depth = None
+    filters_cfg = (data_cfg.get("extra_filters") or {})
+    if isinstance(filters_cfg, dict):
+        tmd = filters_cfg.get("toml_min_depth", None)
+        if tmd is not None:
+            try:
+                toml_min_depth = int(tmd)
+            except Exception as e:
+                raise ValueError(f"data.extra_filters.toml_min_depth must be an int, got {tmd!r}") from e
+            if toml_min_depth < 2:
+                raise ValueError("data.extra_filters.toml_min_depth must be >= 2")
+
     for s in specs:
         # Load items
         if s.train_path and s.valid_path:
@@ -290,10 +306,32 @@ def append_extra_datasets(
             raise ValueError("Each extra dataset entry must provide (train_path+valid_path) or path")
 
         # Append
+        # (Optional) apply filtering to extra SFT examples.
+        if stage == "sft" and toml_min_depth is not None:
+            def _keep(ex: Dict[str, Any]) -> bool:
+                if str(ex.get("output_type") or "").upper() != "TOML":
+                    return True
+                out = ex.get("output")
+                if not isinstance(out, str) or not out.strip():
+                    return False
+                return is_toml_deep(out, min_depth=toml_min_depth)
+
+            before_tr, before_va = len(train_items), len(valid_items)
+            train_items = [x for x in train_items if _keep(x)]
+            valid_items = [x for x in valid_items if _keep(x)]
+            dropped = (before_tr - len(train_items)) + (before_va - len(valid_items))
+            if dropped:
+                info(
+                    f"Extra TOML depth filter applied: min_depth={toml_min_depth} dropped={dropped}"
+                )
+
         if stage == "sft":
             _append_jsonl(Path(train_path), train_items)
             _append_jsonl(Path(valid_path), valid_items)
         else:
+            if toml_min_depth is not None:
+                # GRPO extras are StructEval task arrays; TOML depth checks do not apply.
+                info("data.extra_filters.toml_min_depth is set but ignored for stage=grpo")
             _append_json_array(Path(train_path), train_items)
             _append_json_array(Path(valid_path), valid_items)
 

@@ -130,6 +130,15 @@ data:
     valid_ratio: 0.1
     seed: 42
 
+  # Optional: filter extra datasets by TOML nesting depth.
+  # - When set, TOML examples whose max dotted depth is < toml_min_depth are dropped.
+  # - Depth is detected from:
+  #     [a.b.c] / [[a.b.c]] table headers
+  #     a.b.c = ... dotted-key assignments
+  # - Use 2 to keep "2+ layers" and 3 for "3+ layers".
+  extra_filters:
+    toml_min_depth: null
+
 eval:
   # quick validation after SFT
   run_eval_after_train: false
