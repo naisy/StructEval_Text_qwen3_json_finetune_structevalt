@@ -5,11 +5,15 @@
 - これをSFT/GRPOで学習すると、TOML出力の自由度が不必要に上がり、厳密なTOML文法に収束しづらくなる。
 
 ## 目的
-- Hugging Faceデータのインポート時に、TOMLとして扱う出力のうち「JSON形式に見えるもの」を検出し、TOMLに変換してから後段のTOML canonicalize処理へ流す。
+- Hugging Faceデータのインポート時に、TOMLとして扱う出力のうち「JSON形式に見えるもの」を検出する。
+- 検出したサンプルは **TOMLへ変換＋canonicalize** した上で、HF由来データからは除外し、`data/my_sft_dataset.jsonl` に **移動（追記）** する。
+  - 希少パターンを「確実に学習へ入れる」用途
+  - `data.use_extra_datasets: false` にして「意図的に除外する」用途
 
 ## 適用箇所
 - `src/data/import_hf_structured_sft.py`
   - HFデータをSFT JSONL / GRPO tasksへ変換する処理の中で、TOML出力の canonicalize の直前に適用する。
+  - 既定では `--toml-jsonlike-action move` として扱い、HF由来の `data/hf_sft.jsonl` / `data/hf_grpo_tasks.json` には入れない。
 
 ## 仕様
 ### 検出条件（保守的）
@@ -36,4 +40,5 @@
   - `c = ""\n`
 
 ## 影響範囲
-- daichira系は基本的に該当しない想定だが、処理はTOML出力共通の前処理として適用されても副作用は小さい（JSON parse 成功時のみ変換される）。
+- daichira系は基本的に該当しない想定だが、処理はTOML出力共通の前処理として適用されても副作用は小さい（JSON parse 成功時のみ対象）。
+- HFデータ側から除外するため、バランシングで落ちたり混ざったりせず、学習への取り込みは `use_extra_datasets` のON/OFFで制御できる。

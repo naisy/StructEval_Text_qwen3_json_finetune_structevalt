@@ -25,14 +25,16 @@ data:
 ## 動作
 
 `scripts/run_sft_hf.sh` は、HF の `data/hf_sft.jsonl` を生成した直後に、
-以下の条件を満たす場合だけ `data/my_sft_dataset.jsonl` を自動生成する。
+以下の条件を満たす場合に `data/my_sft_dataset.jsonl` へ **追記（dedup付き）** する。
 
 - `data.use_extra_datasets == true`
 - `data.extra_datasets` に `data/my_sft_dataset.jsonl` が含まれる
 - `data.extra_filters.toml_min_depth` が `2` 以上の int
-- `data/my_sft_dataset.jsonl` がまだ存在しない
 
-自動生成は `src/data/extract_deep_toml_from_sft_jsonl.py` が担当する。
+※ `data/my_sft_dataset.jsonl` は他の希少データ（例: TOML-jsonlike修正）でも使うため、
+ファイルの有無ではなく **--append により追記** する。
+
+追記は `src/data/extract_deep_toml_from_sft_jsonl.py` が担当する（`--append`）。
 
 ### 抽出条件
 

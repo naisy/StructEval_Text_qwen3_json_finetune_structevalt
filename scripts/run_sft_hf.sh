@@ -42,11 +42,12 @@ else:
 PY
 )"
 
-if [ -n "${DEEP_TOML_MIN_DEPTH}" ] && [ ! -f data/my_sft_dataset.jsonl ]; then
+if [ -n "${DEEP_TOML_MIN_DEPTH}" ]; then
   PYTHONPATH="$(pwd)" python -m src.data.extract_deep_toml_from_sft_jsonl \
     --input data/hf_sft.jsonl \
     --output data/my_sft_dataset.jsonl \
-    --min-depth "${DEEP_TOML_MIN_DEPTH}"
+    --min-depth "${DEEP_TOML_MIN_DEPTH}" \
+    --append
 fi
 
 # Subset selection (balance by task_key OR per-output-type targets)

@@ -67,6 +67,11 @@ def main() -> int:
     ap.add_argument("--output", required=True, help="Output JSONL (e.g., data/my_sft_dataset.jsonl)")
     ap.add_argument("--min-depth", type=int, required=True, help="Keep TOML examples with depth >= this")
     ap.add_argument("--overwrite", action="store_true", help="Overwrite output if exists")
+    ap.add_argument(
+        "--append",
+        action="store_true",
+        help="Append to output if exists (dedup by fingerprint). If neither --overwrite nor --append is set, existing output is kept and extraction is skipped.",
+    )
     args = ap.parse_args()
 
     in_path = Path(args.input)
@@ -75,18 +80,29 @@ def main() -> int:
         raise SystemExit("--min-depth must be >= 2")
     if not in_path.exists():
         raise SystemExit(f"Input not found: {in_path}")
-    if out_path.exists() and not args.overwrite:
+    if out_path.exists() and (not args.overwrite) and (not args.append):
         info(f"Deep TOML output already exists, skip: {out_path}")
         return 0
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
+
     selected = list(extract_deep_toml_items(_iter_jsonl(in_path), min_depth=args.min_depth))
-    with out_path.open("w", encoding="utf-8") as f:
+    if args.append and out_path.exists() and (not args.overwrite):
+        # Dedup against existing file
+        existing_fps: Set[str] = set()
+        for it in _iter_jsonl(out_path):
+            existing_fps.add(_fingerprint(it))
+        selected = [it for it in selected if _fingerprint(it) not in existing_fps]
+        mode = "a"
+    else:
+        mode = "w"
+
+    with out_path.open(mode, encoding="utf-8") as f:
         for it in selected:
             f.write(json.dumps(it, ensure_ascii=False) + "\n")
 
     info(
-        f"Wrote deep TOML extras: {out_path} items={len(selected)} (min_depth={args.min_depth})"
+        f"Wrote deep TOML extras: {out_path} added={len(selected)} (min_depth={args.min_depth})"
     )
     return 0
 
