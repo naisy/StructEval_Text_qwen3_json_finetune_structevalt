@@ -500,6 +500,18 @@ def main() -> None:
             if not out_text:
                 continue
 
+            # NOTE: Some HF examples (observed in u-10bei/*) label outputs as TOML
+            # but contain a JSON object/array payload. Those will FAIL strict TOML
+            # parsing if we validate first.
+            #
+            # Therefore we convert JSON-like payloads -> TOML *before* any
+            # strict-parse filtering / cleaning policies.
+            if out_type and _normalize_output_type(out_type) == "TOML":
+                if looks_like_json_payload(out_text):
+                    ok_j2t, toml_text, _err_j2t = convert_json_payload_to_toml(out_text)
+                    if ok_j2t and toml_text.strip():
+                        out_text = toml_text
+
             if args.filter_invalid and out_type:
                 t = _normalize_output_type(out_type)
                 # Stage 1: strict parsing (legacy behavior)
@@ -526,14 +538,6 @@ def main() -> None:
             # TOML outputs are normalized to a deterministic canonical form.
             # This prevents mixing incompatible TOML styles across HF sources (e.g., u-10bei vs daichira).
             if out_type and _normalize_output_type(out_type) == "TOML":
-                # Some HF examples (observed in u-10bei/*) label outputs as TOML
-                # but contain a JSON object/array payload. Convert those to TOML
-                # *before* canonicalization so they do not poison the style.
-                if looks_like_json_payload(out_text):
-                    ok_j2t, toml_text, _err_j2t = convert_json_payload_to_toml(out_text)
-                    if ok_j2t and toml_text.strip():
-                        out_text = toml_text
-
                 ok_c, _already, canon, _err = V.canonicalize_toml_text(out_text)
                 if ok_c and canon.strip():
                     out_text = canon
