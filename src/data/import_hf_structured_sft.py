@@ -618,9 +618,11 @@ def main() -> None:
             is_toml_jsonlike = False
             if out_type and _normalize_output_type(out_type) == "TOML":
                 if looks_like_json_payload(out_text):
-                    is_toml_jsonlike = True
+                    # Only treat as "TOML-jsonlike" when the payload is actually
+                    # valid JSON and conversion succeeds.
                     ok_j2t, toml_text, _err_j2t = convert_json_payload_to_toml(out_text)
                     if ok_j2t and toml_text.strip():
+                        is_toml_jsonlike = True
                         out_text = toml_text
 
             if args.filter_invalid and out_type:

@@ -7,6 +7,9 @@ def test_looks_like_json_payload():
     assert looks_like_json_payload('{"a": 1}')
     assert looks_like_json_payload('   [1,2,3]')
     assert not looks_like_json_payload('a = 1')
+    # TOML table headers must NOT be detected as JSON.
+    assert not looks_like_json_payload('[public]')
+    assert not looks_like_json_payload('[[items]]')
 
 
 def test_convert_json_object_to_toml_root():
