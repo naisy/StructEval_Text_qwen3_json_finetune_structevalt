@@ -18,9 +18,10 @@ Conversion is implemented in `src/data/import_hf_structured_sft.py`.
 
 ### u-10bei prompt/output policy
 For `u-10bei/structured_data_with_cot_dataset*` datasets:
-- Prefer `metadata.prompt` as the training `query` when present.
-- Prefer `metadata.output` (or equivalent metadata keys) as the reference output when present.
-- Fall back to the chat-style `messages` (system/user/assistant) only when metadata fields are missing.
+- Use `metadata.prompt` as the training `query`.
+- Use `metadata.output` (or equivalent metadata keys) as the reference output.
+- Do **not** use the chat-style `messages` (system/user/assistant) for StructEval-T training; those fields are treated as logs.
+- Do **not** append extra metadata blocks to the u-10bei query.
 
 Rationale: for text-only StructEval-T learning, `metadata.prompt`/`metadata.output` provides a clean single-turn representation without mixing system/user contexts or injecting extra metadata into the query.
 

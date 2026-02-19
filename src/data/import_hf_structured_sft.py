@@ -384,6 +384,27 @@ def _u10bei_prompt_from_metadata(ex: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _u10bei_output_from_metadata(ex: Dict[str, Any]) -> Optional[str]:
+    """Return u-10bei gold output from metadata when available.
+
+    Policy for StructEval-T training in this repo:
+    - u-10bei/*: use metadata.prompt + metadata.output (messages are treated as logs).
+    """
+    md = ex.get("metadata")
+    if not isinstance(md, dict):
+        return None
+    # Prefer the canonical field name used by u-10bei datasets.
+    v = md.get("output")
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    # Some variants may store under alternative keys; keep a small fallback list.
+    for k in ("final_output", "answer", "gold", "target"):
+        v2 = md.get(k)
+        if isinstance(v2, str) and v2.strip():
+            return v2.strip()
+    return None
+
+
 def append_metadata_supplement(query_text: str, *, tmeta: dict, output_type: str | None) -> str:
     """Append a human-readable metadata block to the query.
 
@@ -615,10 +636,13 @@ def main() -> None:
             # Fallback to chat messages when metadata.prompt is absent.
             prompt_for_task: Optional[str] = None
             if name.startswith("u-10bei/"):
+                # StructEval-T training policy: u-10bei uses metadata.prompt only.
+                # Treat chat messages as logs and do NOT use them to reconstruct prompts.
                 prompt_for_task = _u10bei_prompt_from_metadata(ex)
-
-            if not prompt_for_task:
-                # Need user message to reconstruct a prompt.
+                if not prompt_for_task:
+                    continue
+            else:
+                # Non-u-10bei datasets (e.g., daichira) use chat messages.
                 if not user_msg:
                     continue
                 prompt_for_task = build_query_text(name, sys_msg, user_msg)
@@ -638,12 +662,20 @@ def main() -> None:
             # - For u-10bei/* when metadata.prompt is present, we intentionally
             #   keep the prompt "as-is" and avoid mixing metadata fields into
             #   the training query.
-            if name.startswith("u-10bei/") and _u10bei_prompt_from_metadata(ex):
+            if name.startswith("u-10bei/"):
+                # Keep u-10bei prompt "as-is" (no extra metadata blocks).
                 query_text = base_query_text.strip()
             else:
                 query_text = append_metadata_supplement(base_query_text, tmeta=tmeta, output_type=out_type)
 
-            out_text = _extract_reference_output(ex, asst_msg, out_type)
+            if name.startswith("u-10bei/"):
+                # StructEval-T training policy: u-10bei uses metadata.output only.
+                out_md = _u10bei_output_from_metadata(ex)
+                if not out_md:
+                    continue
+                out_text = extract_final_output(out_md, out_type)
+            else:
+                out_text = _extract_reference_output(ex, asst_msg, out_type)
             if not out_text:
                 continue
 
