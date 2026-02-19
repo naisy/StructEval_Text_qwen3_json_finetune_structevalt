@@ -13,8 +13,16 @@ Conversion is implemented in `src/data/import_hf_structured_sft.py`.
 
 ### Key policies
 - **Strict syntax filtering**: examples are dropped if the declared `output_type` cannot be parsed strictly.
-- **Format-only filtering**: examples with wrapper text (markdown fences, extra prose) are dropped.
+- **Wrapper-text tolerant**: wrapper text (markdown fences, "Output:" preambles, etc.) is tolerated as long as the extracted structured payload parses strictly.
 - **TOML canonicalization (output side)**: parsed TOML outputs are re-rendered into the repo's canonical TOML form to avoid style mixing across sources.
+
+### u-10bei prompt/output policy
+For `u-10bei/structured_data_with_cot_dataset*` datasets:
+- Prefer `metadata.prompt` as the training `query` when present.
+- Prefer `metadata.output` (or equivalent metadata keys) as the reference output when present.
+- Fall back to the chat-style `messages` (system/user/assistant) only when metadata fields are missing.
+
+Rationale: for text-only StructEval-T learning, `metadata.prompt`/`metadata.output` provides a clean single-turn representation without mixing system/user contexts or injecting extra metadata into the query.
 
 ## Canonical TOML definition
 Canonical TOML is defined by `src/data/toml_canonical.py`:

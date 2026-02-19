@@ -366,6 +366,24 @@ def build_query_text(dataset_name: str, sys_msg: str | None, user_msg: str) -> s
     return u
 
 
+def _u10bei_prompt_from_metadata(ex: Dict[str, Any]) -> Optional[str]:
+    """Return u-10bei prompt from metadata when available.
+
+    Background:
+    - u-10bei/* datasets are chat-formatted (system/user/assistant) but also
+      ship a clean single-string prompt in metadata in newer variants.
+    - For this repo's SFT/GRPO pipelines (user-only prompting), a single
+      prompt string is the cleanest representation.
+    """
+    md = ex.get("metadata")
+    if not isinstance(md, dict):
+        return None
+    v = md.get("prompt")
+    if isinstance(v, str) and v.strip():
+        return v.strip()
+    return None
+
+
 def append_metadata_supplement(query_text: str, *, tmeta: dict, output_type: str | None) -> str:
     """Append a human-readable metadata block to the query.
 
@@ -589,19 +607,41 @@ def main() -> None:
             if not isinstance(ex, dict):
                 continue
             sys_msg, user_msg, asst_msg = _extract_messages(ex)
-            if not user_msg:
-                continue
 
-            base_query_text = build_query_text(name, sys_msg, user_msg)
+            # ----------------------------
+            # Prompt selection policy
+            # ----------------------------
+            # Prefer the clean prompt provided in metadata for u-10bei/*.
+            # Fallback to chat messages when metadata.prompt is absent.
+            prompt_for_task: Optional[str] = None
+            if name.startswith("u-10bei/"):
+                prompt_for_task = _u10bei_prompt_from_metadata(ex)
+
+            if not prompt_for_task:
+                # Need user message to reconstruct a prompt.
+                if not user_msg:
+                    continue
+                prompt_for_task = build_query_text(name, sys_msg, user_msg)
+
+            base_query_text = prompt_for_task
             out_type = _infer_output_type(ex)
 
             # Keep lightweight task classification fields to enable later
             # balancing/reporting WITHOUT re-downloading HF datasets.
-            tmeta = _task_meta(name, ex, user_msg=user_msg, output_type=out_type)
+            user_msg_for_meta = user_msg if isinstance(user_msg, str) and user_msg.strip() else (prompt_for_task or "")
+            tmeta = _task_meta(name, ex, user_msg=user_msg_for_meta, output_type=out_type)
 
             # Append a clearly-marked metadata supplement to disambiguate
             # short prompts (common in generation tasks).
-            query_text = append_metadata_supplement(base_query_text, tmeta=tmeta, output_type=out_type)
+            #
+            # Exception:
+            # - For u-10bei/* when metadata.prompt is present, we intentionally
+            #   keep the prompt "as-is" and avoid mixing metadata fields into
+            #   the training query.
+            if name.startswith("u-10bei/") and _u10bei_prompt_from_metadata(ex):
+                query_text = base_query_text.strip()
+            else:
+                query_text = append_metadata_supplement(base_query_text, tmeta=tmeta, output_type=out_type)
 
             out_text = _extract_reference_output(ex, asst_msg, out_type)
             if not out_text:
@@ -636,7 +676,7 @@ def main() -> None:
 
                 # Stage 2: deterministic cleaning policy (based on structeval_dataset_check.ipynb)
                 dec = decide_keep_example(
-                    prompt=user_msg.strip(),
+                    prompt=(prompt_for_task or "").strip(),
                     output_type=t,
                     extracted_output=out_text,
                     raw_answer_text=asst_msg,
@@ -689,6 +729,8 @@ def main() -> None:
                 # raw_output_metric becomes an empty list and the GRPO reward must fall back
                 # to deterministic component rewards (e.g., parse/only) and/or gold matching.
                 attrs = extract_attributes_from_prompt(user_msg)
+                if not attrs:
+                    attrs = extract_attributes_from_prompt(prompt_for_task or "")
                 grpo_tasks.append(
                     {
                         "task_id": _stable_task_id(
