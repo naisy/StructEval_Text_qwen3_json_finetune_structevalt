@@ -1,17 +1,69 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Convert allowed HF datasets to SFT JSONL and split into train/valid.
-# You can override DATASETS (space-separated) and SPLIT.
-DATASETS="${HF_SFT_DATASETS:-u-10bei/structured_data_with_cot_dataset_512_v5 daichira/structured-3k-mix-sft daichira/structured-5k-mix-sft daichira/structured-hard-sft-4k}"
-SPLIT="${HF_SFT_SPLIT:-train}"
+CFG_PATH="configs/sft_hf.yaml"
 
-PYTHONPATH="$(pwd)" python -m src.data.import_hf_structured_sft \
-  --datasets ${DATASETS} \
-  --split "${SPLIT}" \
-  --out-sft-jsonl data/hf_sft.jsonl \
-  --filter-invalid \
-  --shuffle-seed 42
+# Decide dataset source from config (online vs offline)
+read -r USE_ONLINE USE_OFFLINE CFG_DATASETS CFG_SPLIT <<<"$(python - <<'PY'
+import yaml
+cfg=yaml.safe_load(open('configs/sft_hf.yaml','r',encoding='utf-8')) or {}
+d=(cfg.get('data') or {})
+on=(d.get('online_dataset') or {})
+off=(d.get('offline_dataset') or {})
+use_on = bool(on.get('use', True))
+use_off = bool(off.get('use', False))
+datasets = on.get('datasets', None)
+split = on.get('split', 'train')
+if isinstance(datasets, list):
+    datasets = ' '.join(str(x) for x in datasets)
+elif datasets is None:
+    datasets = ''
+else:
+    datasets = str(datasets)
+print('1' if use_on else '0', '1' if use_off else '0', datasets, split)
+PY
+)"
+
+SFT_INPUT_JSONL=""
+
+if [ "${USE_ONLINE}" = "1" ] && [ "${USE_OFFLINE}" = "1" ]; then
+  echo "WARN  Both online_dataset.use and offline_dataset.use are true. This usually violates contest rules (mixing sources)."
+fi
+
+if [ "${USE_ONLINE}" = "1" ]; then
+  # Convert allowed HF datasets to SFT JSONL and split into train/valid.
+  # You can override via env vars HF_SFT_DATASETS / HF_SFT_SPLIT.
+  if [ -n "${CFG_DATASETS}" ]; then
+    DEFAULT_DATASETS="${CFG_DATASETS}"
+  else
+    DEFAULT_DATASETS="u-10bei/structured_data_with_cot_dataset_512_v5 daichira/structured-3k-mix-sft daichira/structured-5k-mix-sft daichira/structured-hard-sft-4k"
+  fi
+  DATASETS="${HF_SFT_DATASETS:-${DEFAULT_DATASETS}}"
+  SPLIT="${HF_SFT_SPLIT:-${CFG_SPLIT}}"
+
+  PYTHONPATH="$(pwd)" python -m src.data.import_hf_structured_sft \
+    --datasets ${DATASETS} \
+    --split "${SPLIT}" \
+    --out-sft-jsonl data/hf_sft.jsonl \
+    --filter-invalid \
+    --shuffle-seed 42
+
+  SFT_INPUT_JSONL="data/hf_sft.jsonl"
+fi
+
+if [ -z "${SFT_INPUT_JSONL}" ] && [ "${USE_OFFLINE}" = "1" ]; then
+  # Build a single offline jsonl from local files/dirs.
+  PYTHONPATH="$(pwd)" python -m src.data.build_offline_dataset \
+    --stage sft \
+    --config "${CFG_PATH}" \
+    --out data/offline_sft.jsonl
+  SFT_INPUT_JSONL="data/offline_sft.jsonl"
+fi
+
+if [ -z "${SFT_INPUT_JSONL}" ]; then
+  echo "ERROR  No dataset source enabled. Set data.online_dataset.use or data.offline_dataset.use to true in ${CFG_PATH}." >&2
+  exit 1
+fi
 
 # --------------------------------------------------------------
 # Optional: extract rare "deep TOML" examples from HF data into a local JSONL,
@@ -26,8 +78,15 @@ PYTHONPATH="$(pwd)" python -m src.data.import_hf_structured_sft \
 # --------------------------------------------------------------
 DEEP_TOML_MIN_DEPTH="$(python - <<'PY'
 import yaml
-cfg=yaml.safe_load(open('configs/sft_hf.yaml','r',encoding='utf-8'))
+cfg=yaml.safe_load(open('configs/sft_hf.yaml','r',encoding='utf-8')) or {}
 data=(cfg.get('data') or {})
+
+# Deep TOML extraction is an ONLINE-only helper (extracting from imported HF JSONL).
+online=(data.get('online_dataset') or {})
+if not bool(online.get('use', True)):
+    print('')
+    raise SystemExit(0)
+
 use=bool(data.get('use_extra_datasets', False))
 extras=data.get('extra_datasets') or []
 filters=(data.get('extra_filters') or {})
@@ -42,7 +101,7 @@ else:
 PY
 )"
 
-if [ -n "${DEEP_TOML_MIN_DEPTH}" ]; then
+if [ -n "${DEEP_TOML_MIN_DEPTH}" ] && [ "${USE_ONLINE}" = "1" ]; then
   PYTHONPATH="$(pwd)" python -m src.data.extract_deep_toml_from_sft_jsonl \
     --input data/hf_sft.jsonl \
     --output data/my_sft_dataset.jsonl \
@@ -55,7 +114,6 @@ fi
 PER_DEVICE_BS="${SFT_PER_DEVICE_TRAIN_BS:-2}"
 GRAD_ACCUM="${SFT_GRAD_ACCUM:-8}"
 EPOCHS="${SFT_EPOCHS:-2}"
-SFT_INPUT_JSONL="data/hf_sft.jsonl"
 PYTHONPATH="$(pwd)" python -m src.data.hf_select_subset \
   --stage sft \
   --config configs/sft_hf.yaml \
