@@ -30,6 +30,127 @@ import yaml
 
 from src.data.balance_by_task import _iter_jsonl, _load_json_array  # noqa: SLF001
 from src.data.toml_depth_check import is_toml_deep
+from src.data.import_hf_structured_sft import (
+    _extract_messages,
+    _infer_output_type,
+    _task_meta,
+    _u10bei_output_from_metadata,
+    _u10bei_prompt_from_metadata,
+    build_query_text,
+    extract_final_output,
+    extract_attributes_from_prompt,
+)
+
+
+def _norm_output_type(x: Any) -> str:
+    s = str(x or "").strip()
+    return s.upper() if s else ""
+
+
+def _is_u10bei(dataset_name: str) -> bool:
+    return str(dataset_name or "").startswith("u-10bei/")
+
+
+def _is_daichira(dataset_name: str) -> bool:
+    return str(dataset_name or "").startswith("daichira/")
+
+
+def _extract_prompt_and_output(row: Dict[str, Any]) -> tuple[str, str, str]:
+    """Normalize one offline row into (query, output, output_type).
+
+    Offline datasets in this project may be provided in either:
+      A) "HF-imported SFT JSONL" schema (already normalized):
+         {query, output, output_type, task_*...}
+      B) "filtered_datasets" schema (raw-ish):
+         {dataset, output_format, task_kind, task_name, messages, metadata, evaluation, ...}
+
+    For (B), we apply the same *prompt selection policy* as HF import:
+      - u-10bei/*: use metadata.prompt + metadata.output (messages are treated as logs)
+      - others (daichira/*): use chat messages (user/assistant)
+    """
+
+    # Case A: already normalized.
+    if isinstance(row.get("query"), str) and isinstance(row.get("output"), str):
+        ot = _norm_output_type(row.get("output_type"))
+        return row["query"].strip(), row["output"].strip(), ot
+
+    dataset_name = str(row.get("dataset") or "offline")
+
+    # Try to infer output type first.
+    ot = _norm_output_type(row.get("output_type"))
+    if not ot:
+        ot = _norm_output_type(row.get("output_format"))
+    if not ot:
+        ot = _norm_output_type(_infer_output_type(row))
+
+    sys_msg, user_msg, asst_msg = _extract_messages(row)
+
+    # Prompt selection policy.
+    prompt: str | None = None
+    if _is_u10bei(dataset_name):
+        prompt = _u10bei_prompt_from_metadata(row)
+        if not prompt:
+            # As in HF import: if metadata.prompt is missing, skip.
+            return "", "", ot
+    else:
+        if not user_msg:
+            return "", "", ot
+        prompt = build_query_text(dataset_name, sys_msg, user_msg)
+
+    # Output selection policy.
+    out_text: str | None = None
+    if _is_u10bei(dataset_name):
+        out_text = _u10bei_output_from_metadata(row)
+        if not out_text:
+            return "", "", ot
+    else:
+        if not asst_msg:
+            return "", "", ot
+        out_text = asst_msg
+
+    # Extract the pure structured payload.
+    extracted = extract_final_output(out_text, ot) if out_text else ""
+    return (prompt or "").strip(), extracted.strip(), ot
+
+
+def _normalize_sft_row(row: Dict[str, Any]) -> Dict[str, Any] | None:
+    query, output, out_type = _extract_prompt_and_output(row)
+    if not query or not output:
+        return None
+
+    dataset_name = str(row.get("dataset") or "offline")
+
+    # Build task classification fields (task_key, task_family, ...)
+    # Reuse the same logic as HF import for consistency.
+    user_msg_for_meta = query
+    ex_for_meta: Dict[str, Any] = {}
+    if isinstance(row.get("metadata"), dict):
+        ex_for_meta["metadata"] = row.get("metadata")
+    if _is_daichira(dataset_name):
+        # HF import expects daichira fields (task, subcategory).
+        ex_for_meta["task"] = str(row.get("task_kind") or "unknown")
+        ex_for_meta["subcategory"] = str(row.get("task_name") or "unknown")
+    tmeta = _task_meta(dataset_name, ex_for_meta, user_msg=user_msg_for_meta, output_type=out_type)
+
+    meta: Dict[str, Any] = {}
+    ev = row.get("evaluation")
+    if isinstance(ev, dict):
+        g = ev.get("grammar")
+        if isinstance(g, dict) and "ok" in g:
+            meta["parse_ok"] = bool(g.get("ok"))
+        if "usable" in ev:
+            meta["usable"] = bool(ev.get("usable"))
+
+    out: Dict[str, Any] = {
+        "query": query,
+        "output": output,
+        **tmeta,
+    }
+    if out_type:
+        out["output_type"] = out_type
+    if meta:
+        out["meta"] = meta
+    return out
 
 
 def _load_yaml(path: Path) -> Dict[str, Any]:
@@ -109,9 +230,22 @@ def build_sft(cfg_path: Path, out_path: Path) -> None:
     tmd = filt.get("toml_min_depth", None)
     tmd_int = None if tmd is None else int(tmd)
 
-    rows: List[Dict[str, Any]] = []
+    raw_rows: List[Dict[str, Any]] = []
     for p in files:
-        rows.extend(list(_iter_jsonl(p)))
+        raw_rows.extend(list(_iter_jsonl(p)))
+
+    rows: List[Dict[str, Any]] = []
+    skipped = 0
+    for r in raw_rows:
+        nr = _normalize_sft_row(r)
+        if nr is None:
+            skipped += 1
+            continue
+        rows.append(nr)
+
+    if skipped:
+        print(f"INFO  offline SFT normalize: skipped={skipped} kept={len(rows)}")
+
     rows = _filter_sft_rows(rows, toml_min_depth=tmd_int)
     _write_jsonl(out_path, rows)
     print(f"INFO  built offline SFT jsonl: {out_path} rows={len(rows)} sources={len(files)}")
@@ -122,19 +256,63 @@ def build_grpo(cfg_path: Path, out_path: Path) -> None:
     off = _offline_cfg(cfg)
     datasets = off.get("datasets") if isinstance(off.get("datasets"), list) else []
     datasets = [str(x) for x in datasets if isinstance(x, str) and x.strip()]
-    files = _collect_files(datasets, suffix=".json")
-    if not files:
-        raise SystemExit("No offline GRPO json files found. Check data.offline_dataset.datasets")
+    json_files = _collect_files(datasets, suffix=".json")
+    jsonl_files = _collect_files(datasets, suffix=".jsonl")
+    if not json_files and not jsonl_files:
+        raise SystemExit("No offline GRPO files found. Check data.offline_dataset.datasets")
 
     tasks: List[Dict[str, Any]] = []
-    for p in files:
+
+    # Case A: already prepared StructEval-style task arrays.
+    for p in json_files:
         arr = _load_json_array(p)
         if not isinstance(arr, list):
             raise ValueError(f"Expected JSON array in {p}")
         tasks.extend(arr)
 
+    # Case B: local JSONL (same source as offline SFT). Convert to StructEval tasks.
+    if jsonl_files:
+        import hashlib
+
+        def _stable_task_id(*, query: str, output_type: str, reference_output: str) -> str:
+            base = f"{output_type}\n{query}\n{reference_output}".encode("utf-8")
+            h = hashlib.md5(base).hexdigest()
+            return f"offline_{h}"
+
+        converted = 0
+        for p in jsonl_files:
+            for r in _iter_jsonl(p):
+                nr = _normalize_sft_row(r)
+                if nr is None:
+                    continue
+                q = str(nr.get("query") or "").strip()
+                ref = str(nr.get("output") or "").strip()
+                ot = _norm_output_type(nr.get("output_type") or "JSON") or "JSON"
+                attrs = extract_attributes_from_prompt(q)
+                tasks.append(
+                    {
+                        "task_id": _stable_task_id(query=q, output_type=ot, reference_output=ref),
+                        "query": q,
+                        "output_type": ot,
+                        "reference_output": ref,
+                        "raw_output_metric": attrs,
+                        # Keep meta fields if present (helps analysis/debugging)
+                        "task_key": nr.get("task_key"),
+                        "task_family": nr.get("task_family"),
+                        "task_kind": nr.get("task_kind"),
+                        "task_name": nr.get("task_name"),
+                        "schema": nr.get("schema"),
+                        "complexity": nr.get("complexity"),
+                    }
+                )
+                converted += 1
+        if converted:
+            print(f"INFO  converted offline JSONL -> GRPO tasks: {converted}")
+
     _write_json_array(out_path, tasks)
-    print(f"INFO  built offline GRPO tasks: {out_path} tasks={len(tasks)} sources={len(files)}")
+    print(
+        f"INFO  built offline GRPO tasks: {out_path} tasks={len(tasks)} sources={len(json_files)} json + {len(jsonl_files)} jsonl"
+    )
 
 
 def main() -> int:
