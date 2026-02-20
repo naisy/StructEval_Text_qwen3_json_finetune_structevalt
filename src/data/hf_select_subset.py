@@ -81,8 +81,41 @@ def _norm_output_type(x: Any) -> str:
     return s if s else "UNKNOWN"
 
 
-def _get_sampling_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
+def _pick_dataset_source(data: Dict[str, Any], *, dataset_source: str) -> str:
+    """Resolve which dataset source block should be used.
+
+    dataset_source:
+      - "online": force data.online_dataset
+      - "offline": force data.offline_dataset
+      - "auto": choose based on .use flags; fallback to legacy
+    """
+    ds = str(dataset_source).strip().lower()
+    if ds in {"online", "offline"}:
+        return ds
+
+    online = data.get("online_dataset") if isinstance(data.get("online_dataset"), dict) else {}
+    offline = data.get("offline_dataset") if isinstance(data.get("offline_dataset"), dict) else {}
+    if bool(online.get("use", False)):
+        return "online"
+    if bool(offline.get("use", False)):
+        return "offline"
+    return "legacy"
+
+
+def _get_sampling_cfg(cfg: Dict[str, Any], *, dataset_source: str) -> Dict[str, Any]:
     data = cfg.get("data") if isinstance(cfg.get("data"), dict) else {}
+    which = _pick_dataset_source(data, dataset_source=dataset_source)
+
+    if which == "online":
+        online = data.get("online_dataset") if isinstance(data.get("online_dataset"), dict) else {}
+        samp = online.get("sampling") if isinstance(online.get("sampling"), dict) else {}
+        return samp
+    if which == "offline":
+        offline = data.get("offline_dataset") if isinstance(data.get("offline_dataset"), dict) else {}
+        samp = offline.get("sampling") if isinstance(offline.get("sampling"), dict) else {}
+        return samp
+
+    # legacy
     samp = data.get("sampling") if isinstance(data.get("sampling"), dict) else {}
     return samp
 
@@ -335,6 +368,11 @@ def main() -> int:
     ap.add_argument("--output", required=True)
     ap.add_argument("--output-format", choices=["jsonl", "json"], required=True)
 
+    # Which config block to use for sampling.
+    # - auto: choose online/offline based on data.*.use flags; fallback to legacy
+    # - online/offline: force that block
+    ap.add_argument("--dataset-source", choices=["auto", "online", "offline"], default="auto")
+
     # Context numbers for balance_by_task report only.
     ap.add_argument("--per-device-train-batch-size", type=int, default=None)
     ap.add_argument("--grad-accum", type=int, default=None)
@@ -344,7 +382,7 @@ def main() -> int:
     args = ap.parse_args()
 
     cfg = _load_yaml(Path(args.config))
-    samp = _get_sampling_cfg(cfg)
+    samp = _get_sampling_cfg(cfg, dataset_source=args.dataset_source)
     mode = str(samp.get("mode", "balance_by_task")).strip().lower()
 
     inp = Path(args.input)
