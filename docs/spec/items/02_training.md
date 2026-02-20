@@ -214,45 +214,13 @@ data:
 本実装は **グループごとに seed 付きでシャッフル**して抽出し、
 最後に全体を再シャッフルして学習順序の偏りを減らす。
 
-## 追加ローカルデータセットの併用（HF バランス後に append）
+## 追加ローカルデータセットの append 機能（廃止）
 
-Hugging Face のみだとカバーされないパターン（例: **TOML inline table**, XML `&` エスケープ等）を
-学習させたい場合、ローカルで用意したデータセットを **HF の task_key バランス処理の後**に追加できる。
+過去に存在した「HF バランス後にローカルデータを append する」機能は、
+設定項目が増えて混乱を招くため廃止した。
 
-- 追加のタイミング: `scripts/run_sft_hf.sh` / `scripts/run_grpo_hf.sh` で
-  `prepare_*_split` が作った `train_hf_*` / `valid_hf_*` に対して append する
-- 追加によって HF 側のサンプリング/バランス挙動は変わらない（= 期待通り「最後に足す」）
-
-### 設定方法
-
-`configs/sft_hf.yaml` / `configs/grpo_hf.yaml` の `data.use_extra_datasets` を `true` にし、
-`data.extra_datasets` にローカルファイルを配列で指定する。
-
-HF 提供データセットのみで学習する場合は、ルール上「合成データ/データ改変をしない」ため、
-`use_extra_datasets: false` を前提とする（デフォルトも `false`）。
-
-単一ファイルを比率で分割して append（推奨・シンプル）:
-
-```yaml
-data:
-  use_extra_datasets: true
-  extra_datasets:
-    - data/my_inline_table_sft1.jsonl
-    - data/my_inline_table_sft2.jsonl
-  extra_split:
-    valid_ratio: 0.1
-    seed: 42
-```
-
-GRPO 側は `extra_datasets` に JSON 配列（StructEval 形式）のファイルを並べる。
-
-> 互換性のため、より詳細な dict 形式（train/valid を手動分割して `train_path` / `valid_path` を指定）も引き続き利用できるが、
-> 実験しやすさのため、基本は上記の「ファイル列挙 + 自動 split」を推奨。
-
-### 実装
-
-- 追加処理: `python -m src.data.append_extra_datasets`
-- 呼び出し元: `scripts/run_sft_hf.sh` / `scripts/run_grpo_hf.sh`
+今後は `online_dataset` / `offline_dataset` のどちらか一方を有効化し、
+その入力だけで学習データを確定させる。
 
 ## 主な設定ファイル
 

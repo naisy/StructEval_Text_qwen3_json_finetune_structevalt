@@ -222,29 +222,6 @@ data:
     # Offline data can be sampled/balanced using the SAME logic.
     sampling: *GRPO_SAMPLING
 
-  # --------------------------------------------------------------
-  # Legacy (DEPRECATED)
-  #
-  # The old config shape appended local datasets AFTER HF sampling:
-  #   use_extra_datasets / extra_datasets / extra_split / extra_filters
-  #
-  # Keep it for backward compatibility, but prefer offline_dataset.
-  # --------------------------------------------------------------
-
-  # Optional: append local StructEval-style task JSON arrays AFTER HF balancing & split.
-  # Useful when HF datasets lack certain patterns.
-  use_extra_datasets: false
-
-  extra_datasets:
-    - data/my_grpo_dataset.json
-
-  extra_split:
-    valid_ratio: 0.1
-    seed: 55
-
-  extra_filters:
-    toml_min_depth: null
-
 eval:
   run_eval_after_train: false
   eval_config: configs/eval.yaml

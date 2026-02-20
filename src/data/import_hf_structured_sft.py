@@ -553,27 +553,8 @@ def main() -> None:
     p.add_argument("--max-rows-per-dataset", type=int, default=0, help="0 means no limit")
     p.add_argument("--shuffle-seed", type=int, default=0)
 
-    # ------------------------------------------------------------------
-    # TOML corner cases (HF -> local)
-    #
-    # Some HF datasets label an example as TOML but the assistant output is
-    # actually a JSON payload. We intentionally *do not keep* those examples in
-    # the HF-derived dataset after conversion, because they are rare patterns
-    # that we sometimes want to include (guaranteed) OR exclude entirely.
-    #
-    # Therefore we "move" them into a local extra dataset file.
-    # ------------------------------------------------------------------
-    p.add_argument(
-        "--toml-jsonlike-action",
-        choices=["move", "keep", "drop"],
-        default="move",
-        help="How to handle TOML examples whose output looks like JSON. move=write to extra JSONL and exclude from HF output.",
-    )
-    p.add_argument(
-        "--toml-jsonlike-extra-out",
-        default="data/my_sft_dataset.jsonl",
-        help="Where to write moved TOML-jsonlike examples (JSONL). Only used when action=move.",
-    )
+    # Legacy options that moved/ appended local datasets were removed.
+    # TOML outputs are canonicalized in-place when possible.
     args = p.parse_args()
 
     sft_out = Path(args.out_sft_jsonl)
@@ -587,13 +568,7 @@ def main() -> None:
     sft_rows: List[Dict[str, Any]] = []
     grpo_tasks: List[Dict[str, Any]] = []
 
-    toml_jsonlike_rows: List[Dict[str, Any]] = []
-    toml_jsonlike_out = Path(args.toml_jsonlike_extra_out)
-    toml_jsonlike_seen = (
-        _load_existing_fingerprints_jsonl(toml_jsonlike_out)
-        if args.toml_jsonlike_action == "move"
-        else set()
-    )
+    # (removed) toml_jsonlike_rows / extra output
 
     filtered_invalid = 0
     filtered_invalid_by_type: dict[str, int] = {}
@@ -683,18 +658,13 @@ def main() -> None:
             # but contain a JSON object/array payload.
             #
             # Policy in this repo:
-            # - Convert JSON-like payloads -> TOML.
-            # - By default, MOVE those rare patterns into a local extra dataset
-            #   (data/my_sft_dataset.jsonl) so we can guarantee inclusion OR
-            #   disable them via data.use_extra_datasets=false.
-            is_toml_jsonlike = False
+            # - Convert JSON-like payloads -> TOML when conversion succeeds.
             if out_type and _normalize_output_type(out_type) == "TOML":
                 if looks_like_json_payload(out_text):
                     # Only treat as "TOML-jsonlike" when the payload is actually
                     # valid JSON and conversion succeeds.
                     ok_j2t, toml_text, _err_j2t = convert_json_payload_to_toml(out_text)
                     if ok_j2t and toml_text.strip():
-                        is_toml_jsonlike = True
                         out_text = toml_text
 
             if args.filter_invalid and out_type:
@@ -726,23 +696,6 @@ def main() -> None:
                 ok_c, _already, canon, _err = V.canonicalize_toml_text(out_text)
                 if ok_c and canon.strip():
                     out_text = canon
-
-            # If this is a TOML-jsonlike case, optionally "move" it into the
-            # local extra dataset and exclude from the HF-derived dataset.
-            if is_toml_jsonlike and args.toml_jsonlike_action != "keep":
-                if args.toml_jsonlike_action == "move":
-                    row = {
-                        "query": query_text,
-                        "output": out_text,
-                        **tmeta,
-                        "output_type": out_type,
-                    }
-                    fp = _fingerprint_sft_row(row)
-                    if fp not in toml_jsonlike_seen:
-                        toml_jsonlike_seen.add(fp)
-                        toml_jsonlike_rows.append(row)
-                # drop or move: do NOT add to HF-derived SFT/GRPO outputs
-                continue
 
             row = {
                 "query": query_text,
@@ -804,17 +757,6 @@ def main() -> None:
     if args.write_grpo_tasks:
         info(f"[import_hf_structured_sft] Writing GRPO tasks JSON: {grpo_out} tasks={len(grpo_tasks)}")
         grpo_out.write_text(json.dumps(grpo_tasks, ensure_ascii=False), encoding="utf-8")
-
-    if args.toml_jsonlike_action == "move" and toml_jsonlike_rows:
-        toml_jsonlike_out.parent.mkdir(parents=True, exist_ok=True)
-        # Append with de-duplication.
-        mode = "a" if toml_jsonlike_out.exists() else "w"
-        with toml_jsonlike_out.open(mode, encoding="utf-8") as f:
-            for r in toml_jsonlike_rows:
-                f.write(json.dumps(r, ensure_ascii=False) + "\n")
-        info(
-            f"[import_hf_structured_sft] Moved TOML-jsonlike examples -> {toml_jsonlike_out} added={len(toml_jsonlike_rows)}"
-        )
 
     info("Done.")
 

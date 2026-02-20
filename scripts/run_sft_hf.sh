@@ -66,48 +66,11 @@ if [ -z "${SFT_INPUT_JSONL}" ]; then
 fi
 
 # --------------------------------------------------------------
-# Optional: extract rare "deep TOML" examples from HF data into a local JSONL,
-# so they can be appended AFTER HF balancing.
+# Legacy: extra local datasets / deep TOML extraction
 #
-# Enabled via configs/sft_hf.yaml:
-#   data.use_extra_datasets: true
-#   data.extra_datasets: [data/my_sft_dataset.jsonl]
-#   data.extra_filters.toml_min_depth: 2 (or 3)
-#
-# If the output file already exists, this step is skipped.
+# This repo no longer supports the legacy "append extra datasets after balancing" mechanism.
+# Keeping it around causes confusion and makes contest rule compliance harder.
 # --------------------------------------------------------------
-DEEP_TOML_MIN_DEPTH="$(python - <<'PY'
-import yaml
-cfg=yaml.safe_load(open('configs/sft_hf.yaml','r',encoding='utf-8')) or {}
-data=(cfg.get('data') or {})
-
-# Deep TOML extraction is an ONLINE-only helper (extracting from imported HF JSONL).
-online=(data.get('online_dataset') or {})
-if not bool(online.get('use', True)):
-    print('')
-    raise SystemExit(0)
-
-use=bool(data.get('use_extra_datasets', False))
-extras=data.get('extra_datasets') or []
-filters=(data.get('extra_filters') or {})
-tmd=filters.get('toml_min_depth', None)
-want=False
-if use and isinstance(extras, list):
-    want = any(isinstance(e,str) and e.strip()=='data/my_sft_dataset.jsonl' for e in extras)
-if not want or tmd is None:
-    print('')
-else:
-    print(int(tmd))
-PY
-)"
-
-if [ -n "${DEEP_TOML_MIN_DEPTH}" ] && [ "${USE_ONLINE}" = "1" ]; then
-  PYTHONPATH="$(pwd)" python -m src.data.extract_deep_toml_from_sft_jsonl \
-    --input data/hf_sft.jsonl \
-    --output data/my_sft_dataset.jsonl \
-    --min-depth "${DEEP_TOML_MIN_DEPTH}" \
-    --append
-fi
 
 # Subset selection (balance by task_key OR per-output-type targets)
 # Config: configs/sft_hf.yaml -> data.sampling
@@ -144,11 +107,7 @@ PYTHONPATH="$(pwd)" python -m src.data.prepare_sft_split \
 #         train_path: data/my_x_train.jsonl
 #         valid_path: data/my_x_valid.jsonl
 # --------------------------------------------------------------
-PYTHONPATH="$(pwd)" python -m src.data.append_extra_datasets \
-  --stage sft \
-  --config configs/sft_hf.yaml \
-  --train data/train_hf_sft.jsonl \
-  --valid data/valid_hf_sft.jsonl
+echo "INFO  Extra datasets feature removed; using only selected dataset source(s)."
 
 # Ensure StructEval-T multi-format eval tasks exist ONLY when post-train eval is enabled.
 #
