@@ -54,67 +54,131 @@ data:
   dataset_config: configs/dataset_hf_sft.yaml
 
   # --------------------------------------------------------------
-  # HF subset selection (NO data modification; selection only)
+  # Dataset sources
   #
-  # mode:
-  #   - balance_by_task: equalize by task_key (default)
-  #   - per_output_type: choose counts per output format (e.g., TOML=all)
-  #   - none: use the imported HF dataset as-is
+  # This project supports two mutually-exclusive ways to provide
+  # training data:
+  #   - online_dataset: download HF datasets, then run local validation
+  #     and task-family balancing / sampling.
+  #   - offline_dataset: use already-prepared local datasets (jsonl),
+  #     without downloading or modifying data.
   #
-  # Note: legacy env vars (HF_BALANCE_*) still override balance_by_task.*
+  # NOTE: The official contest rule is:
+  #   - If you train with the provided HF datasets, you MUST NOT mix
+  #     in synthetic/local data.
+  # Therefore, in typical contest runs you should set exactly one of
+  # (online_dataset.use, offline_dataset.use) to true.
   # --------------------------------------------------------------
-  sampling:
-    mode: balance_by_task
-    #mode: per_output_type
+  online_dataset:
+    use: true
 
-    balance_by_task:
-      enabled: true
-      strategy: min      # min|max|fixed
-      fixed_n: null      # used when strategy=fixed
-      seed: 42
-      min_count: 8       # drop rare task_key groups before balancing
+    # HF datasets to download.
+    # - null: use the default list in scripts/run_sft_hf.sh (and/or env overrides)
+    # - list: override from config (recommended for reproducibility)
+    datasets: null
+    # HF split name (usually: train).
+    split: train
 
-    # Example: train on all TOML, and limit other formats.
-    per_output_type:
-      seed: 42
-      shuffle: true
-      oversample_with_replacement: false
-      default_target: null   # null => keep all for unspecified formats
-      targets:
-        TOML: 0
-        JSON: 0
-        YAML: 0
-        XML: 0
-        CSV: 0
+    # Import-time validation
+    # - filter_invalid: drop examples whose target structure is invalid
+    # - shuffle_seed: deterministic shuffle during HF import
+    import:
+      filter_invalid: true
+      shuffle_seed: 42
 
-      # Optional: split per-format targets by HF family.
-      # Useful when only one family contains a hard pattern (e.g., deep-nested TOML in u-10bei).
-      #
-      by_task_family:
+    # Optional preprocessing filters applied to the imported HF JSONL.
+    # Currently only used for auxiliary steps (e.g., deep TOML extraction).
+    filters:
+      # null => disable depth filtering
+      toml_min_depth: null
+
+    # Subset selection (sampling/balancing) applied AFTER HF import.
+    sampling: &SFT_SAMPLING
+      # mode:
+      #   - balance_by_task: equalize by task_key (default)
+      #   - per_output_type: choose counts per output format (e.g., TOML=all)
+      #   - none: use the imported dataset as-is
+      mode: balance_by_task
+      #mode: per_output_type
+
+      balance_by_task:
         enabled: true
-        default_family: other   # used when task_family is missing or not listed below
-        families:
-          u10bei:
-            targets:
-              TOML: 200
-              JSON: 100
-              YAML: 100
-              XML: 100
-              CSV: 100
-          daichira:
-            targets:
-              TOML: 0
-              JSON: 0
-              YAML: 0
-              XML: 0
-              CSV: 0
-          other:
-            targets:
-              TOML: 0
-              JSON: 0
-              YAML: 0
-              XML: 0
-              CSV: 0
+        strategy: min      # min|max|fixed
+        fixed_n: null      # used when strategy=fixed
+        seed: 42
+        min_count: 8       # drop rare task_key groups before balancing
+
+      # Example: train on all TOML, and limit other formats.
+      per_output_type:
+        seed: 42
+        shuffle: true
+        oversample_with_replacement: false
+        default_target: null   # null => keep all for unspecified formats
+        targets:
+          TOML: 0
+          JSON: 0
+          YAML: 0
+          XML: 0
+          CSV: 0
+
+        # Optional: split per-format targets by HF family.
+        # Useful when only one family contains a hard pattern.
+        by_task_family:
+          enabled: true
+          default_family: other   # used when task_family is missing or unknown
+          families:
+            u10bei:
+              targets:
+                TOML: 200
+                JSON: 100
+                YAML: 100
+                XML: 100
+                CSV: 100
+            daichira:
+              targets:
+                TOML: 0
+                JSON: 0
+                YAML: 0
+                XML: 0
+                CSV: 0
+            other:
+              targets:
+                TOML: 0
+                JSON: 0
+                YAML: 0
+                XML: 0
+                CSV: 0
+
+  offline_dataset:
+    use: false
+
+    # Local dataset files or directories.
+    # - file: a single *.jsonl file
+    # - dir:  a directory; all *.jsonl under it are collected (recursive)
+    datasets: []
+
+    # How to split offline data into train/valid.
+    split:
+      valid_ratio: 0.1
+      seed: 42
+
+    # Optional preprocessing filters applied to offline JSONL.
+    filters:
+      # null => disable depth filtering
+      toml_min_depth: null
+
+    # Offline data can be sampled/balanced using the SAME logic.
+    # When offline_dataset.use=true, this block is used by default.
+    sampling: *SFT_SAMPLING
+
+  # --------------------------------------------------------------
+  # Legacy (DEPRECATED)
+  #
+  # The old config shape appended local datasets AFTER HF sampling:
+  #   use_extra_datasets / extra_datasets / extra_split / extra_filters
+  #
+  # Keep it for backward compatibility, but prefer offline_dataset.
+  # --------------------------------------------------------------
 
   # Optional: append local JSONL datasets AFTER HF balancing & split.
   # Keep this OFF by default.

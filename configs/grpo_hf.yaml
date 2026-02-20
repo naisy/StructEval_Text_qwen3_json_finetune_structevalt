@@ -122,64 +122,119 @@ data:
   dataset_config: configs/dataset_hf_grpo.yaml
 
   # --------------------------------------------------------------
-  # HF subset selection (NO data modification; selection only)
+  # Dataset sources
   #
-  # mode:
-  #   - balance_by_task: equalize by task_key (default)
-  #   - per_output_type: choose counts per output format (e.g., TOML=all)
-  #   - none: use the imported HF tasks as-is
-  #
-  # Note: legacy env vars (HF_BALANCE_*) still override balance_by_task.*
+  # Same idea as SFT (configs/sft_hf.yaml): choose ONE primary source.
+  #   - online_dataset: download HF datasets, then run local validation
+  #     and task-family balancing / sampling.
+  #   - offline_dataset: use already-prepared local datasets (JSON arrays
+  #     of StructEval-style tasks), without downloading or modifying data.
   # --------------------------------------------------------------
-  sampling:
-    #mode: balance_by_task
-    mode: per_output_type
+  online_dataset:
+    use: true
 
-    balance_by_task:
-      enabled: true
-      strategy: min      # min|max|fixed
-      fixed_n: null      # used when strategy=fixed
-      seed: 55
-      min_count: 8       # drop rare task_key groups before balancing
+    # HF datasets to download.
+    # - null: use the default list in scripts/run_grpo_hf.sh (and/or env overrides)
+    # - list: override from config (recommended for reproducibility)
+    datasets: null
+    # HF split name (usually: train).
+    split: train
 
-    # Example: train on all TOML tasks, and limit other formats.
-    per_output_type:
-      seed: 55
-      shuffle: true
-      oversample_with_replacement: false
-      default_target: null
-      targets:
-        TOML: 0
-        JSON: 0
-        YAML: 0
-        XML: 0
-        CSV: 0
+    # Import-time validation
+    import:
+      filter_invalid: true
+      shuffle_seed: 55
 
-      # Optional: split per-format targets by HF family (u10bei / daichira / other).
-      by_task_family:
+    # Optional preprocessing filters (kept for parity with SFT).
+    filters:
+      toml_min_depth: null
+
+    # Subset selection (sampling/balancing) applied AFTER HF import.
+    sampling: &GRPO_SAMPLING
+      # mode:
+      #   - balance_by_task: equalize by task_key
+      #   - per_output_type: choose counts per output format
+      #   - none: use the imported tasks as-is
+      mode: per_output_type
+
+      balance_by_task:
         enabled: true
-        default_family: other
-        families:
-          u10bei:
-            targets:
-              TOML: 100
-              JSON: 10
-              YAML: 10
-              XML: 10
-              CSV: 10
-          daichira:
-            targets:
-              TOML: 0
-          other:
-            targets:
-              TOML: 0
+        strategy: min      # min|max|fixed
+        fixed_n: null      # used when strategy=fixed
+        seed: 55
+        min_count: 8       # drop rare task_key groups before balancing
+
+      per_output_type:
+        seed: 55
+        shuffle: true
+        oversample_with_replacement: false
+        default_target: null
+        targets:
+          TOML: 0
+          JSON: 0
+          YAML: 0
+          XML: 0
+          CSV: 0
+
+        # Optional: split per-format targets by HF family.
+        by_task_family:
+          enabled: true
+          default_family: other
+          families:
+            u10bei:
+              targets:
+                TOML: 100
+                JSON: 10
+                YAML: 10
+                XML: 10
+                CSV: 10
+            daichira:
+              targets:
+                TOML: 0
+                JSON: 0
+                YAML: 0
+                XML: 0
+                CSV: 0
+            other:
+              targets:
+                TOML: 0
+                JSON: 0
+                YAML: 0
+                XML: 0
+                CSV: 0
+
+  offline_dataset:
+    use: false
+
+    # Local dataset files or directories.
+    # - file: a single *.json file containing a JSON array of tasks
+    # - dir:  a directory; all *.json under it are collected (recursive)
+    datasets: []
+
+    split:
+      valid_ratio: 0.1
+      seed: 55
+
+    # Optional preprocessing filters (kept for parity with SFT).
+    filters:
+      toml_min_depth: null
+
+    # Offline data can be sampled/balanced using the SAME logic.
+    sampling: *GRPO_SAMPLING
+
+  # --------------------------------------------------------------
+  # Legacy (DEPRECATED)
+  #
+  # The old config shape appended local datasets AFTER HF sampling:
+  #   use_extra_datasets / extra_datasets / extra_split / extra_filters
+  #
+  # Keep it for backward compatibility, but prefer offline_dataset.
+  # --------------------------------------------------------------
 
   # Optional: append local StructEval-style task JSON arrays AFTER HF balancing & split.
-  # Useful when HF datasets lack certain patterns (e.g., TOML inline tables).
+  # Useful when HF datasets lack certain patterns.
   use_extra_datasets: false
 
-  # List of local dataset files (JSON arrays). Each file is split into train/valid and
-  # appended to `data/train_hf_grpo_tasks.json` and `data/valid_hf_grpo_tasks.json`.
   extra_datasets:
     - data/my_grpo_dataset.json
 
@@ -187,7 +242,6 @@ data:
     valid_ratio: 0.1
     seed: 55
 
-  # Optional: keep config parity with SFT. (Currently only applied for stage=sft.)
   extra_filters:
     toml_min_depth: null
 
