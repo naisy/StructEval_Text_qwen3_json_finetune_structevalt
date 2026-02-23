@@ -1,0 +1,6 @@
+出力ファイル名,学習方法,r,alpha,learning_rate,loss,全体パース率,csv,json,toml,xml,yaml,繰り返し
+sft_inference_34.json,SFT,1,2,1.00E-03,0.6718,79.3,15,49,7,14,34,1
+sft_inference_35.json,SFT,1,2,1.00E-04,1.0615,94,20,50,18,18,35,1
+sft_inference_36.json,SFT,1,2,1.00E-05,2.1356,85.3,20,50,7,19,32,0
+sft_inference_37.json,SFT,1,2,1.00E-06,2.3167,85.3,19,50,7,19,33,0
+base_model_inference.json,,,,,,84.7,20,49,7,19,32,0
