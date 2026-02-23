@@ -1,0 +1,158 @@
+Qwen/Qwen3-4B-Instruct-2507 をベースに、StructEval_TでJSON, YAML, TOML, XML, CSVの推論を評価するためのモデルを作ろうとしています。
+
+仕様書とコードをセットで更新してきているのですが、途中で仕様書の更新が中途半端になっている可能性があります。
+コードはgitで管理していて、commitしてdiffを確認しながら進めることにしています。
+
+プロジェクト開始時には学習データは提供されていなかったため、StructEval_TのJSON, YAML, TOML, XML, CSVデータをダウンロードして、Ollamaのgpt-oss: 20bを使ってSFT用の合成データを作成する能力を持っています。structevalのデータは各50件しかないので、SFT用の合成データは4回作ることにしています。
+4回というのは、configs/dataset_sft.yamlの中に variants_per_task: 4 というのがあります。ここで1タスクあたりの生成件数を設定しています。
+このデータを使ってSFTやGRPOで学習することができるスクリプトがあります。
+scripts/sft.sh
+scripts/gpro.sh
+また、設定ファイルは
+configs/dataset_sft.yaml
+configs/dataset_grpo.yaml
+configs/sft.yaml
+configs/grpo.yaml
+にあります。
+
+現在は以下の学習データが提供されていて、これらを使う場合は合成データを利用したり、データを変更したりしてはいけないルールがあります。
+https://huggingface.co/datasets/u-10bei/structured_data_with_cot_dataset_512_v2
+https://huggingface.co/datasets/u-10bei/structured_data_with_cot_dataset_512_v4
+https://huggingface.co/datasets/u-10bei/structured_data_with_cot_dataset_512_v5
+https://huggingface.co/datasets/u-10bei/structured_data_with_cot_dataset_512
+https://huggingface.co/datasets/u-10bei/structured_data_with_cot_dataset_v2
+https://huggingface.co/datasets/u-10bei/structured_data_with_cot_dataset
+https://huggingface.co/datasets/daichira/structured-3k-mix-sft
+https://huggingface.co/datasets/daichira/structured-5k-mix-sft
+https://huggingface.co/datasets/daichira/structured-hard-sft-4k
+このデータを使って学習した場合の評価は、StructEval_Tで各タスク(JSON, YAML, TOML, XML, CSV)を10個ずつ評価するように、configs/eval.yamlにlimit_per_output_type: 10 としてデフォルト設定にしています。
+
+u-10bei系のデータ構造は以下のようになっています。
+
+Dataset({
+    features: ['messages', 'metadata'],
+    num_rows: 3933
+})
+['messages', 'metadata']
+{'messages': List({'role': Value('string'), 'content': Value('string')}), 'metadata': {'format': Value('string'), 'complexity': Value('string'), 'schema': Value('string'), 'type': Value('string'), 'estimated_tokens': Value('int64')}}
+{'messages': [{'role': 'system', 'content': 'You are an expert in TOML format. Think step-by-step, then generate syntactically perfect TOML.'}, {'role': 'user', 'content': 'Transform this CSV data into TOML format:\nassessment_id,code,course_id,credits,date,grade,grading_final,grading_homework,grading_midterm,instructor,percentage,schedule,scores,student_id,term,title,total_score,type\r\nASMT-554535,,CRS-9992,,2026-01-03,B,,,,,63.99,,"[{""question"": 1, ""points_earned"": 9, ""points_possible"": 10}, {""question"": 2, ""points_earned"": 6, ""po",STU-693793,,,86,exam\r\n,TNY218,CRS-7794,4,,,40,30,30,Kara Bennett,,"[{""week"": 1, ""topic"": ""present""}, {""week"": 2, ""topic"": ""arrive""}, {""week"": 3, ""topic"": ""school""}, {""",,,Spring 2023,Monitored mobile analyzer 101,,\r\n,ZDW419,CRS-8967,3,,,40,30,30,Cheryl Downs,,"[{""week"": 1, ""topic"": ""form""}, {""week"": 2, ""topic"": ""important""}, {""week"": 3, ""topic"": ""enter""}, {""w",,,Spring 2022,Profit-focused intangible neural-net 101,,\r\n'}, {'role': 'assistant', 'content': 'Approach:\n1. Task: Convert student assessment from CSV to TOML\n2. Complexity: medium - 5-8 fields, 2-3 levels\n3. Format rules: key=value syntax, [sections], proper types\n4. Structure: Organize data logically with appropriate nesting\n5. Transform values to match the target format specifications.\n\nOutput:\nassessment_id = "ASMT-554535"\nstudent_id = "STU-693793"\ncourse_id = "CRS-9992"\ntype = "exam"\ndate = "2026-01-03"\ntotal_score = 86\npercentage = 63.99\ngrade = "B"\n[[scores]]\nquestion = 1\npoints_earned = 9\npoints_possible = 10\n\n[[scores]]\nquestion = 2\npoints_earned = 6\npoints_possible = 10\n\n[[scores]]\nquestion = 3\npoints_earned = 7\npoints_possible = 10\n\n[[scores]]\nquestion = 4\npoints_earned = 6\npoints_possible = 10\n\n[[scores]]\nquestion = 5\npoints_earned = 6\npoints_possible = 10\n\n[[scores]]\nquestion = 6\npoints_earned = 1\npoints_possible = 10\n\n[[scores]]\nquestion = 7\npoints_earned = 4\npoints_possible = 10\n\n[[scores]]\nquestion = 8\npoints_earned = 8\npoints_possible = 10\n\n[[scores]]\nquestion = 9\npoints_earned = 2\npoints_possible = 10\n\n[[scores]]\nquestion = 10\npoints_earned = 3\npoints_possible = 10\n\n'}], 'metadata': {'format': 'toml', 'complexity': 'medium', 'schema': 'student_assessment', 'type': 'conversion', 'estimated_tokens': 276}}
+{'messages': [[{'role': 'system', 'content': 'You are an expert in TOML format. Think step-by-step, then generate syntactically perfect TOML.'}, {'role': 'user', 'content': 'Transform this CSV data into TOML format:\nassessment_id,code,course_id,credits,date,grade,grading_final,grading_homework,grading_midterm,instructor,percentage,schedule,scores,student_id,term,title,total_score,type\r\nASMT-554535,,CRS-9992,,2026-01-03,B,,,,,63.99,,"[{""question"": 1, ""points_earned"": 9, ""points_possible"": 10}, {""question"": 2, ""points_earned"": 6, ""po",STU-693793,,,86,exam\r\n,TNY218,CRS-7794,4,,,40,30,30,Kara Bennett,,"[{""week"": 1, ""topic"": ""present""}, {""week"": 2, ""topic"": ""arrive""}, {""week"": 3, ""topic"": ""school""}, {""",,,Spring 2023,Monitored mobile analyzer 101,,\r\n,ZDW419,CRS-8967,3,,,40,30,30,Cheryl Downs,,"[{""week"": 1, ""topic"": ""form""}, {""week"": 2, ""topic"": ""important""}, {""week"": 3, ""topic"": ""enter""}, {""w",,,Spring 2022,Profit-focused intangible neural-net 101,,\r\n'}, {'role': 'assistant', 'content': 'Approach:\n1. Task: Convert student assessment from CSV to TOML\n2. Complexity: medium - 5-8 fields, 2-3 levels\n3. Format rules: key=value syntax, [sections], proper types\n4. Structure: Organize data logically with appropriate nesting\n5. Transform values to match the target format specifications.\n\nOutput:\nassessment_id = "ASMT-554535"\nstudent_id = "STU-693793"\ncourse_id = "CRS-9992"\ntype = "exam"\ndate = "2026-01-03"\ntotal_score = 86\npercentage = 63.99\ngrade = "B"\n[[scores]]\nquestion = 1\npoints_earned = 9\npoints_possible = 10\n\n[[scores]]\nquestion = 2\npoints_earned = 6\npoints_possible = 10\n\n[[scores]]\nquestion = 3\npoints_earned = 7\npoints_possible = 10\n\n[[scores]]\nquestion = 4\npoints_earned = 6\npoints_possible = 10\n\n[[scores]]\nquestion = 5\npoints_earned = 6\npoints_possible = 10\n\n[[scores]]\nquestion = 6\npoints_earned = 1\npoints_possible = 10\n\n[[scores]]\nquestion = 7\npoints_earned = 4\npoints_possible = 10\n\n[[scores]]\nquestion = 8\npoints_earned = 8\npoints_possible = 10\n\n[[scores]]\nquestion = 9\npoints_earned = 2\npoints_possible = 10\n\n[[scores]]\nquestion = 10\npoints_earned = 3\npoints_possible = 10\n\n'}], [{'role': 'system', 'content': 'You are an expert in CSV format. Think step-by-step, then generate syntactically perfect CSV.'}, {'role': 'user', 'content': 'Generate news article data in CSV format.'}, {'role': 'assistant', 'content': 'Approach:\n1. Task: Create news article in CSV\n2. Complexity: complex - 8-10 fields, 3-4 levels\n3. Format rules: header row, comma-separated, quoted fields with commas\n4. Structure: Organize data logically with appropriate nesting\n5. Populate fields with realistic example data based on the schema.\n\nOutput:\narticle_id,author,content,headline,published,section,shares,tags,views\r\nART-2650245,Jennifer Davis,"Late situation both data share market. These foot health box.\nPay me together western ever story cup",Enhanced multimedia hub,2026-01-02T17:44:08.333575,Tech,2819,"[""future"", ""here"", ""new""]",46115\r\nART-2262202,Mary Phillips,"These dark seek social. Identify figure policy act often where pull.\nMessage yet water analysis week",Secured solution-oriented solution,2026-01-05T16:17:55.416091,Tech,3330,"[""church"", ""region"", ""door"", ""form"", ""then""]",95683\r\nART-5343695,Emily Smith,"Forward probably theory visit. Stay research hope newspaper it worry.\nCause fight conference easy st",Organic static projection,2026-01-02T05:42:13.204625,Tech,3671,"[""keep"", ""class"", ""special""]",48293\r\nART-5847055,Michael Poole,Simple exist your. Pay else spring mean senior do. Edge through increase maintain almost rather nor.,Cross-group web-enabled customer loyalty,2026-01-02T01:37:57.867663,Politics,4546,"[""argue"", ""war"", ""deep"", ""explain""]",52000\r\nART-9512774,Michael Kennedy,"Reality chance science care. Partner Mr pattern.\nPlant standard everything after billion office diff",Persevering uniform budgetary management,2026-01-02T23:34:21.012612,Business,3322,"[""administration"", ""end"", ""pattern""]",37594\r\n'}], [{'role': 'system', 'content': 'You are an expert in XML format. Think step-by-step, then generate syntactically perfect XML.'}, {'role': 'user', 'content': 'Transform this JSON data into XML format:\n{\n  "review_id": "REV-1521978",\n  "product_id": "PROD-894495",\n  "user_id": "0e93d4dc-0d39-4af2-8ec3-d8d1250011b9",\n  "rating": 4,\n  "title": "Great how data open such.",\n  "content": "City not either situation all along might. Under could expect build member. Fish ready onto white majority.",\n  "date": "2026-01-05",\n  "verified_purchase": false,\n  "helpful_votes": 57\n}'}, {'role': 'assistant', 'content': 'Approach:\n1. Task: Convert customer review from JSON to XML\n2. Complexity: complex - 8-10 fields, 3-4 levels\n3. Format rules: well-formed tags, proper nesting, escaped special chars\n4. Structure: Organize data logically with appropriate nesting\n5. Transform values to match the target format specifications.\n\nOutput:\n<?xml version="1.0" encoding="UTF-8"?>\n<customer_review>\n<review_id>REV-1521978</review_id>\n<product_id>PROD-894495</product_id>\n<user_id>0e93d4dc-0d39-4af2-8ec3-d8d1250011b9</user_id>\n<rating>4</rating>\n<title>Great how data open such.</title>\n<content>City not either situation all along might. Under could expect build member. Fish ready onto white majority.</content>\n<date>2026-01-05</date>\n<verified_purchase>False</verified_purchase>\n<helpful_votes>57</helpful_votes>\n</customer_review>'}]], 'metadata': [{'format': 'toml', 'complexity': 'medium', 'schema': 'student_assessment', 'type': 'conversion', 'estimated_tokens': 276}, {'format': 'csv', 'complexity': 'complex', 'schema': 'news_article', 'type': 'generation', 'estimated_tokens': 409}, {'format': 'xml', 'complexity': 'complex', 'schema': 'customer_review', 'type': 'conversion', 'estimated_tokens': 202}]}
+
+
+daichira系のデータ構造は以下のようになっています。
+Dataset({
+    features: ['id', 'category', 'subcategory', 'task', 'seed', 'messages'],
+    num_rows: 3000
+})
+['id', 'category', 'subcategory', 'task', 'seed', 'messages']
+{'id': Value('string'), 'category': Value('string'), 'subcategory': Value('string'), 'task': Value('string'), 'seed': Value('string'), 'messages': List({'role': Value('string'), 'content': Value('string')})}
+{'id': 'd3a002bb67a0', 'category': 'C_TOML', 'subcategory': 'text_to_toml', 'task': 'extract', 'seed': 'dummy_hard', 'messages': [{'role': 'user', 'content': 'Extract the following attributes from text and output TOML.\nConstraints:\n- Output ONLY the requested attributes (no extra keys).\n- Preserve key paths and nesting exactly as specified.\n- Use dotted tables and arrays-of-tables to represent nested objects and lists.\n- Do NOT use TOML inline tables (curly braces like { ... }).\n- Align keys directly under their [table] headers; avoid arbitrary indentation.\n- Do NOT wrap values in JSON/HCL-style objects. Use [tables] / [[tables]] only.\nReturn ONLY TOML.\n\nATTRIBUTES:\ndimensions.height_cm, tags[1], tags[0], dimensions.width_cm, ember_eon, lumen_alpha, delta_delta, atlas_atlas\n\nTEXT:\ndimensions.height_cm: 77.2 | tags[1]: gamma | tags[0]: atlas | dimensions.width_cm: 87.9 | ember_eon: 6369.49 | lumen_alpha: 6817 | delta_delta: beta | atlas_atlas: 8938.06'}, {'role': 'assistant', 'content': 'atlas_atlas = 8938.06\ndelta_delta = "beta"\nember_eon = 6369.49\nlumen_alpha = 6817\ntags = ["atlas", "gamma"]\n\n[dimensions]\nheight_cm = 77.2\nwidth_cm = 87.9\n'}]}
+{'id': ['d3a002bb67a0', 'ac0114d04e6e', '93bfc1244830'], 'category': ['C_TOML', 'C_CSV', 'C_YAML'], 'subcategory': ['text_to_toml', 'text_to_csv', 'text_to_yaml'], 'task': ['extract', 'extract', 'extract'], 'seed': ['dummy_hard', 'bench_fill', 'dummy_hard'], 'messages': [[{'role': 'user', 'content': 'Extract the following attributes from text and output TOML.\nConstraints:\n- Output ONLY the requested attributes (no extra keys).\n- Preserve key paths and nesting exactly as specified.\n- Use dotted tables and arrays-of-tables to represent nested objects and lists.\n- Do NOT use TOML inline tables (curly braces like { ... }).\n- Align keys directly under their [table] headers; avoid arbitrary indentation.\n- Do NOT wrap values in JSON/HCL-style objects. Use [tables] / [[tables]] only.\nReturn ONLY TOML.\n\nATTRIBUTES:\ndimensions.height_cm, tags[1], tags[0], dimensions.width_cm, ember_eon, lumen_alpha, delta_delta, atlas_atlas\n\nTEXT:\ndimensions.height_cm: 77.2 | tags[1]: gamma | tags[0]: atlas | dimensions.width_cm: 87.9 | ember_eon: 6369.49 | lumen_alpha: 6817 | delta_delta: beta | atlas_atlas: 8938.06'}, {'role': 'assistant', 'content': 'atlas_atlas = 8938.06\ndelta_delta = "beta"\nember_eon = 6369.49\nlumen_alpha = 6817\ntags = ["atlas", "gamma"]\n\n[dimensions]\nheight_cm = 77.2\nwidth_cm = 87.9\n'}], [{'role': 'user', 'content': 'Extract the following attributes from text and output CSV.\nReturn ONLY CSV.\n\nATTRIBUTES:\ngamma_ember, lumen_terra, terra_lumen, gamma_aurora, auroraGamma, terraVelox\n\nTEXT:\ngamma_ember: Nova | lumen_terra: aurora | terra_lumen: 8662.37 | gamma_aurora: True | auroraGamma: 8331.1 | terraVelox: 8384.95'}, {'role': 'assistant', 'content': 'auroraGamma,gamma_aurora,gamma_ember,lumen_terra,terraVelox,terra_lumen\r\n8331.1,true,Nova,aurora,8384.95,8662.37\r\n'}], [{'role': 'user', 'content': "Extract the following attributes from text and output YAML.\nConstraints:\n- Output ONLY the requested attributes (no extra keys).\n- Preserve key paths and nesting exactly as specified.\n- Use 2-space indentation (no tabs). For sequences, start items with '- ' and indent child keys by 2 more spaces under the item.\nReturn ONLY YAML.\n\nATTRIBUTES:\ntags[1], flags.featured, dimensions.width_cm, tags[0], velox_gamma, beta_ember, gammaLumen, deltaEmber\n\nTEXT:\ntags[1]: gamma | flags.featured: False | dimensions.width_cm: 41.8 | tags[0]: terra | velox_gamma: Atlas | beta_ember: velox | gammaLumen: omega | deltaEmber: 6092.87"}, {'role': 'assistant', 'content': 'tags:\n- terra\n- gamma\nflags:\n  featured: false\ndimensions:\n  width_cm: 41.8\nvelox_gamma: Atlas\nbeta_ember: velox\ngammaLumen: omega\ndeltaEmber: 6092.87\n'}]]}
+
+これらのデータセットを、SFTやGRPOの学習に合致するようにデータセットを作成しています。
+u-10bei系は
+metadataのprompt
+metadataのoutput
+を学習に使います。u-10bei系のmessagesは会話ログなので、StructEval T向けの学習には使いません。
+
+daichira系は
+messagesの
+role=userのcontent
+role=assistantのcontent
+を学習に使います。
+
+学習データのタスクの分布に偏りがあるため、この偏りのまま学習すると、JSON構造の出力に引っ張られる形で、YAMLのインデントミスが発生したり、TOMLのデータ件数が少ないせいで、TOMLへの変換タスクだけ文法ミスが多発しています。
+そこで、学習データをタスクごとに用意して、各タスクから均一にデータセットを抽出しています。
+
+SFTやGRPOでの学習は以下にあります。
+scripts/run_sft_hf.sh
+scripts/run_grpo_hf.sh
+このスクリプトは、huggingfaceのデータがなければ、データをダウンロードする処理もおこなっています。
+
+SFTでの学習はforwardの戻り値のpast_key_valuesを返すことでメモリ肥大化につながっているので、use_cache=Falseにしています。
+GRPOではキャッシュしたほうがいいようなのでキャッシュしています。
+
+データのダウンロード、SFT合成データ作成、SFT学習、GRPO学習までの方法はREADME2.mdに書いてある通りに実行しています。
+
+文法を正しく理解できるようにするために、学習時はJSON, YAML, TOML, XML, CSVごとに評価方法を用意してあります。
+また、出力されたJSON, YAML, TOML, XML, CSVの文法チェックはlintや、出力文字の前後に余計な文字列が入っていないことを確認するアルゴリズムにしています。
+学習データに文法ミスがあった場合は学習データから弾くようにしています。
+また、u-10bei系とdaichira系のTOMLのデータを求めるタスクの解答がcanonicalに統一されていないせいで、TOMLの推論結果で文法がごちゃまぜになってしまう問題が発生します。
+そこで、huggingfaceの学習データで、文法ミスを除去したあとに、tomlデータに関してはcanonicalかどうかを判定して、canonicalでなければcanonicalに変換することを実施しています。
+
+
+SFTのあと、GRPOを学習しました。
+
+# 学習データ指定でSFT
+export HF_SFT_DATASETS="u-10bei/structured_data_with_cot_dataset_512_v2 daichira/structured-3k-mix-sft"
+export HF_SFT_SPLIT="train"
+time bash scripts/run_sft_hf.sh
+
+# 学習データ指定でGRPO
+export HF_GRPO_DATASETS="u-10bei/structured_data_with_cot_dataset_512_v2 daichira/structured-3k-mix-sft"
+export HF_GRPO_SPLIT="train"
+time bash scripts/run_grpo_hf.sh
+
+現在のプロジェクトで、もしコミットされていないファイルがあったら、先にコミットしておいてください。
+
+
+今の問題は、huggingfaceのデータセットは、間違った解答をするタスクが混入していて、品質がわるいことです。
+そのため、別途データクレンジングするプロジェクトを立ち上げて、クレンジングした高品質のデータを用意しました。
+そこで、configs/sft_hf.yamlやconfigs/grpo_hf.yamlでは、データセットの選び方をわかりやすく設定できるようにしたいと考えています。
+
+online_dataset: 
+  use: true/false
+offline_dataset:
+  use: true/false
+このような感じで、オンラインデータセット＝ダウンロードして文法チェックして、タスク分けして、というこれまでの手法をオンラインデータセットとして考えたいです。
+今のoffline_datasetの概念は
+  use_extra_datasets: false
+  extra_datasets:
+    - data/my_sft_dataset.jsonl
+  extra_split:
+    valid_ratio: 0.1
+    seed: 42
+  extra_filters:
+    # null => disable depth filtering
+    toml_min_depth: null
+となっていますが、これをもっとわかりやすくしたいということです。
+offline_dataset:
+  enabled: true/false
+  datasets:
+    - data/my_sft_dataset.jsonl  # 単一ファイル指定
+    - filtered_datasets  # ディレクトリ指定。この下にあるすべてのjsonlが対象
+  split:
+    valid_ratio: 0.1
+    seed: 42
+  families:
+    u10bei:
+      targets:
+        TOML: all
+        JSON: all
+        YAML: all
+        XML: all
+        CSV: all
+    daichira:
+      targets:
+        TOML: 100
+        JSON: 0
+        YAML: 0
+        XML: 0
+        CSV: 0
+    other:
+      targets:
+        TOML: 0
+        JSON: 0
+        YAML: 0
+        XML: 0
+        CSV: 0
+たぶんこんな感じになると思います。パラメータ管理構造について、現在のものからわかりやすい構造に変更することを考えてください。
+実際に使うfiltered_datasetsのデータは添付しておきました。このデータはコミットしないでください。データ構造確認のための参考資料です。
+
+私の提案よりも、よりよい構造があればそれを検討してもらってかまいません。
+現在の実装からパラメータ構造を変更するにあたって、影響範囲を調べておいてください。
+
+
+修正内容をcommitしたらdiffを確認して、修正が正しく反映されているかどうかを確認してください
+プロジェクトにはcommit履歴を含めておきたいので、プロジェクトのディレクトリごとzipにしてダウンロードできるようにしてください
+
