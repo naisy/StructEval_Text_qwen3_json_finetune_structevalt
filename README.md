@@ -7,6 +7,8 @@ It is structured for:
 
 > This template focuses on **clarity**: `train.py` shows the full flow with comments, while detailed logic lives in `src/`.
 
+![](result.png)
+
 ---
 
 ## 1) Quick start
