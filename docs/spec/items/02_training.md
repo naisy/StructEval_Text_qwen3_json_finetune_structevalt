@@ -267,6 +267,8 @@ HF 側の system を捨てると指示が欠落して学習が不安定になる
 - **SFT**: prompt + target（教師）を連結して teacher-forcing
   - `build_prompt(..., add_generation_prompt=True)` は assistant turn を「開いた状態」で返す。
   - **SFT では target の末尾に EOS（`tokenizer.eos_token`）を付与し、終了境界を学習させる。**
+  - `training.assistant_only_loss: true` のときは、**prompt/user 側トークンの `labels` を `-100` にして**、assistant completion（target + EOS）のみ loss を計算する。
+  - 実装は `src/train_sft.py` + `src/data/sft_collator.py`。`transformers.Trainer` はそのまま使い、TRL への全面移行はしていない。
 - **GRPO**: prompt から生成した completion を決定的パーサで採点（外部LLM judge なし）
 - **Eval**: prompt から生成し、StructEval_T で採点
 
@@ -322,6 +324,25 @@ Hugging Face の提供データセットは多くの場合 `reference_output`（
 - `w_match_soft`: **ソフト一致**（パース済み構造を正規化して文字列類似度で 0〜1）
 
 HF データセットでのデフォルト設定は `configs/grpo_hf.yaml` を参照。
+
+## assistant-only loss の方針
+
+本リポジトリの SFT は chat template を使うが、
+学習本体は通常の causal LM (`transformers.Trainer`) で行う。
+
+そのため、`DataCollatorForLanguageModeling(mlm=False)` をそのまま使うと
+**prompt/user/assistant の全トークンが loss 対象**になる。
+
+会話推論と合わせたい場合は、まず `training.assistant_only_loss: true` を使い、
+`prompt` 部分を `labels=-100` にする自前マスクで **assistant completion のみ**を学習する。
+
+- 利点: 現在の LoRA / checkpoint / run 管理 / eval 導線をほぼ崩さず導入できる。
+- 欠点: chat template から assistant mask を返すような高度な抽象化は持たない。
+- 将来: TRL `SFTTrainer` へ移行する選択肢はあるが、まずは現行実装へ最小差分で入れる。
+
+`configs/grpo*.yaml` にも `training.assistant_only_loss` を置けるが、これは
+**設定形状を揃えるための予約項目**であり、GRPO では使用しない。
+GRPO は prompt から completion を生成し、その completion を reward で最適化する。
 
 ## SFT 時のVRAM安定化（じわじわ増える対策）
 

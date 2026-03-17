@@ -113,6 +113,11 @@ See: `src/data/hf_dataset_cleaning.py` and `docs/spec/items/02_training.md`.
 bash scripts/run_sft_hf.sh
 ```
 
+Important training behavior:
+- `configs/sft_hf.yaml` / `configs/sft.yaml` default to `training.assistant_only_loss: true`.
+- SFT still uses the repo's current chat template path, but loss is computed only on the assistant completion (`output + EOS`).
+- This is implemented with a custom labels mask on top of `transformers.Trainer` (not TRL `SFTTrainer`).
+
 To customize which HF datasets to include:
 
 ```bash
