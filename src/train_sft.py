@@ -4,7 +4,7 @@ import inspect
 import os
 import torch
 from datasets import Dataset
-from transformers import TrainingArguments, Trainer, DataCollatorForLanguageModeling
+from transformers import TrainingArguments, Trainer
 
 try:
     from peft import PeftModel
@@ -12,6 +12,7 @@ except Exception:  # pragma: no cover
     PeftModel = None  # type: ignore
 
 from src.data.dataset import load_dataset_any, build_prompt
+from src.data.sft_collator import build_sft_feature, SFTDataCollator
 from src.models.load import load_model, load_tokenizer
 from src.models.lora import build_lora_config, apply_lora
 from src.utils.io import load_yaml, ensure_dir
@@ -92,14 +93,33 @@ def run_sft(
     #   termination boundary.
     eos_text = tok.eos_token if getattr(tok, "eos_token", None) else "<|im_end|>"
 
-    def _sft_text(ex: dict) -> str:
-        return f"{build_prompt(ex, dcfg, tokenizer=tok)}{_target(ex)}{eos_text}"
+    assistant_only_loss = bool(cfg["training"].get("assistant_only_loss", False))
 
-    train_texts = [_sft_text(ex) for ex in train_items]
-    valid_texts = [_sft_text(ex) for ex in valid_items]
+    def _build_feature(ex: dict) -> dict[str, list[int]]:
+        return build_sft_feature(
+            tokenizer=tok,
+            prompt_text=build_prompt(ex, dcfg, tokenizer=tok),
+            target_text=_target(ex),
+            eos_text=eos_text,
+            max_length=int(cfg["training"].get("max_seq_len", 2048)),
+            assistant_only_loss=assistant_only_loss,
+        )
 
-    ds_train = Dataset.from_dict({"text": train_texts})
-    ds_valid = Dataset.from_dict({"text": valid_texts})
+    train_features = [_build_feature(ex) for ex in train_items]
+    valid_features = [_build_feature(ex) for ex in valid_items]
+
+    if assistant_only_loss:
+        fully_masked_train = sum(1 for x in train_features if all(v == -100 for v in x["labels"]))
+        fully_masked_valid = sum(1 for x in valid_features if all(v == -100 for v in x["labels"]))
+        if fully_masked_train or fully_masked_valid:
+            warn(
+                "assistant_only_loss=True masked all labels for some truncated examples "
+                f"(train={fully_masked_train}, valid={fully_masked_valid}). "
+                "Consider increasing training.max_seq_len if this is unexpected."
+            )
+
+    ds_train = Dataset.from_list(train_features)
+    ds_valid = Dataset.from_list(valid_features)
 
     dtype = torch.bfloat16 if cfg["training"].get("bf16", False) else torch.float16
     model = load_model(model_name, dtype=dtype, trust_remote_code=cfg["model"].get("trust_remote_code", True))
@@ -128,22 +148,26 @@ def run_sft(
             except Exception:
                 pass
 
-    # Tokenize
-    max_len = int(cfg["training"].get("max_seq_len", 2048))
     pad_to_max = bool(cfg["training"].get("pad_to_max_length", False))
+    if pad_to_max:
+        max_len = int(cfg["training"].get("max_seq_len", 2048))
 
-    def tok_fn(batch):
-        return tok(
-            batch["text"],
-            truncation=True,
-            max_length=max_len,
-            padding="max_length" if pad_to_max else False,
-        )
+        def _pad_feature(feat: dict[str, list[int]]) -> dict[str, list[int]]:
+            cur_len = len(feat["input_ids"])
+            if cur_len >= max_len:
+                return feat
+            pad_len = max_len - cur_len
+            pad_id = tok.pad_token_id
+            return {
+                "input_ids": feat["input_ids"] + ([pad_id] * pad_len),
+                "attention_mask": feat["attention_mask"] + ([0] * pad_len),
+                "labels": feat["labels"] + ([-100] * pad_len),
+            }
 
-    ds_train = ds_train.map(tok_fn, batched=True, remove_columns=["text"])
-    ds_valid = ds_valid.map(tok_fn, batched=True, remove_columns=["text"])
+        ds_train = Dataset.from_list([_pad_feature(x) for x in train_features])
+        ds_valid = Dataset.from_list([_pad_feature(x) for x in valid_features])
 
-    collator = DataCollatorForLanguageModeling(tok, mlm=False)
+    collator = SFTDataCollator(tok)
 
     # Transformers has renamed/changed some TrainingArguments fields across versions.
     # For example, newer versions may use `eval_strategy` instead of `evaluation_strategy`.

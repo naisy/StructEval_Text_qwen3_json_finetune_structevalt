@@ -18,6 +18,8 @@ training:
   seed: 55
   max_prompt_len: 1536
   max_completion_len: 512
+  # Train loss only on assistant/completion tokens (prompt tokens get labels=-100)
+  assistant_only_loss: true
 
   # 0 = run to completion (default). Set to a positive integer to stop after that many
   # optimizer steps. Useful for quick GRPO sanity checks.

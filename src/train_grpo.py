@@ -53,6 +53,12 @@ def run_grpo(
     set_seed(int(cfg["training"].get("seed", 42)))
     out_dir = ensure_dir(cfg["training"]["output_dir"])
 
+    if "assistant_only_loss" in (cfg.get("training") or {}):
+        info(
+            "training.assistant_only_loss is ignored by GRPO: GRPO optimizes generated completions "
+            "via reward, not token-level prompt/assistant labels."
+        )
+
     # Dataset config
     dcfg = load_yaml(cfg["data"]["dataset_config"])
     dcfg.setdefault("dataset", {})

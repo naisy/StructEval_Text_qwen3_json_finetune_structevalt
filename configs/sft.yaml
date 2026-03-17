@@ -21,6 +21,8 @@ training:
   pad_to_max_length: true
   # Disable kv-cache during training (saves memory; no effect on eval/generation)
   disable_cache: true
+  # Train loss only on assistant/completion tokens (prompt tokens get labels=-100)
+  assistant_only_loss: true
   # Optionally reduce activation memory at the cost of speed
   gradient_checkpointing: false
   # If VRAM still creeps up, set >0 to call torch.cuda.empty_cache() every N steps
