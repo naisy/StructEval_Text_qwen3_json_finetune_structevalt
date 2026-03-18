@@ -1,6 +1,7 @@
 # SFT configuration (Stage A)
 model:
-  base_model: Qwen/Qwen3-4B-Instruct-2507
+  #base_model: Qwen/Qwen3-4B-Instruct-2507
+  base_model: runs/sft/20260318_114027_sft_4d0bc1f/checkpoints/final/
   # If you are using Unsloth or a local path, set base_model to that path.
   trust_remote_code: true
   use_flash_attention_2: true
@@ -20,13 +21,13 @@ training:
   merge_lora_before_save: true
   output_dir: outputs/sft
   seed: 42
-  max_seq_len: 1024
+  max_seq_len: 512
   # Memory stabilization: pad all sequences to max_seq_len to avoid gradual CUDA cache growth
   pad_to_max_length: true
   # Disable kv-cache during training (saves memory; no effect on eval/generation)
   disable_cache: true
   # Train loss only on assistant/completion tokens (prompt tokens get labels=-100)
-  assistant_only_loss: true
+  assistant_only_loss: false
   # Optionally reduce activation memory at the cost of speed
   gradient_checkpointing: false
   # If VRAM still creeps up, set >0 to call torch.cuda.empty_cache() every N steps
@@ -38,7 +39,7 @@ training:
   per_device_eval_batch_size: 2
   gradient_accumulation_steps: 8
   num_train_epochs: 2
-  learning_rate: 5.25e-5
+  learning_rate: 1.1e-4
   warmup_ratio: 0.05
   weight_decay: 0.0
   logging_steps: 10
@@ -72,7 +73,7 @@ data:
   # (online_dataset.use, offline_dataset.use) to true.
   # --------------------------------------------------------------
   online_dataset:
-    use: true
+    use: false
 
     # HF datasets to download.
     # - null: use the default list in scripts/run_sft_hf.sh (and/or env overrides)
@@ -119,8 +120,8 @@ data:
         targets:
           TOML: 0
           JSON: 0
-          YAML: 0
-          XML: 0
+          YAML: 300
+          XML: 300
           CSV: 0
 
         # Optional: split per-format targets by HF family.
@@ -152,12 +153,14 @@ data:
                 CSV: 0
 
   offline_dataset:
-    use: false
+    use: true
 
     # Local dataset files or directories.
     # - file: a single *.jsonl file
     # - dir:  a directory; all *.jsonl under it are collected (recursive)
-    datasets: []
+    #datasets: []
+    datasets: 
+      - filtered_datasets_score_80
 
     # How to split offline data into train/valid.
     split:
