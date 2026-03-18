@@ -1,7 +1,7 @@
 # SFT configuration (Stage A)
 model:
-  #base_model: Qwen/Qwen3-4B-Instruct-2507
-  base_model: runs/sft/20260318_114027_sft_4d0bc1f/checkpoints/final/
+  base_model: Qwen/Qwen3-4B-Instruct-2507
+  #base_model: runs/sft/20260222_162711_sft_14e7a39/checkpoints/final/
   # If you are using Unsloth or a local path, set base_model to that path.
   trust_remote_code: true
   use_flash_attention_2: true
@@ -39,7 +39,7 @@ training:
   per_device_eval_batch_size: 2
   gradient_accumulation_steps: 8
   num_train_epochs: 2
-  learning_rate: 1.1e-4
+  learning_rate: 2.0e-4
   warmup_ratio: 0.05
   weight_decay: 0.0
   logging_steps: 10
